@@ -27,12 +27,9 @@ Model Configuration:
 
     3. Hardcoded fallback in this file: "openai/gpt-5-mini"
 
-    For the CLI script, use --model or --character-models:
-       PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \\
+    For the CLI script, use --model:
+       PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
          --concept "Mini Shepherd Pies" --model openai/gpt-5.1
-       PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \\
-         --concept "Mini Shepherd Pies" \\
-         --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"openai/gpt-5-mini"}'
 
     Available models (must be in model_router allowlists):
       OpenAI:    openai/gpt-5-mini, openai/gpt-5-nano, openai/gpt-5.1
@@ -116,7 +113,7 @@ class _Config:
 
         Set via Doppler:  doppler secrets set DIALOGUE_MODEL "openai/gpt-5.1"
         Set via CLI:      DIALOGUE_MODEL=openai/gpt-5.1 uv run scripts/simulate_dialogue_week.py ...
-        Set via API:      pass --model flag or character_models JSON to simulate_dialogue_week
+        Set via API:      pass the model override to the cron route
         """
         # governance: allow-silent SF003: empty is checked on the next line and raises RuntimeError
         override = os.environ.get("DIALOGUE_MODEL", "").strip()

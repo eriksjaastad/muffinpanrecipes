@@ -7,10 +7,6 @@ Examples:
 
   PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
     --concept "Mini Shepherd's Pies" --stage friday --event "ingredient shortage: cheddar"
-
-  PYTHONPATH=. uv run scripts/simulate_dialogue_week.py \
-    --concept "Brown Butter Pecan Tassies" \
-    --character-models '{"Margaret Chen":"openai/gpt-5.1","default":"openai/gpt-5-mini"}'
 """
 
 from __future__ import annotations
@@ -24,14 +20,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
-from typing import Any, Iterable
+from typing import Any
 
 from backend.config import config
 from backend.storage import CharacterMemoryUnavailable, storage
-from backend.utils.director import Direction, direct_day, roll_day
 from backend.utils.logging import get_logger
 from backend.utils.model_router import generate_response
-from backend.utils.stop_check import StopCheckError, check_scene_done
 
 logger = get_logger(__name__)
 
@@ -81,70 +75,6 @@ DAY_MEETING_GOAL: dict[str, dict[str, str]] = {
     },
 }
 
-CHARACTER_DAY_GOALS: dict[str, dict[str, str]] = {
-    "monday": {
-        "Margaret Chen": "You have strong feelings about whether this concept respects the craft.",
-        "Stephanie 'Steph' Whitmore": "You need the team to land on something. Guide without dictating.",
-        "Julian Torres": "You're already thinking about how this will photograph.",
-        "Marcus Reid": "You're looking for the story angle - what makes this worth writing about.",
-        "Devon Park": "You're listening. You'll care when it hits deployment.",
-        "Ria Castillo": "You're evaluating whether this concept will perform on social. Think hooks, shareability, visual potential.",
-    },
-    "tuesday": {
-        "Margaret Chen": "This is your domain. The ratios have to be right or it doesn't ship.",
-        "Stephanie 'Steph' Whitmore": "You need the recipe locked today. Keep things moving.",
-        "Julian Torres": "You're thinking about how the final dish will photograph.",
-        "Marcus Reid": "You're tasting and thinking about what story the recipe tells.",
-    },
-    "wednesday": {
-        "Margaret Chen": "You want the food shown honestly. No tricks, no garnishes that don't belong.",
-        "Stephanie 'Steph' Whitmore": "You're thinking about what performs in feed. The hero shot matters.",
-        "Julian Torres": "These are YOUR shots. You have a strong opinion about which one leads.",
-        "Marcus Reid": "You see the visual story. You have thoughts about which shot matches the copy.",
-        "Devon Park": "You'll optimize whatever they pick. Not your fight.",
-        "Ria Castillo": "This is your main day. You need shots that work as social content - vertical crops, close-ups, process moments. Push for what performs.",
-    },
-    "thursday": {
-        "Margaret Chen": "You'll cut anything that doesn't serve the recipe. No patience for fluff. Titles should be simple and honest.",
-        "Stephanie 'Steph' Whitmore": "You need a title locked and the copy approved. Mediate if it gets tense.",
-        "Julian Torres": "You care about how the title and copy pair with your images. Short titles look better on the page.",
-        "Marcus Reid": "You propose the title and it's YOUR copy being reviewed. You love a dramatic title but can be talked down.",
-        "Devon Park": "You'll read it if someone sends it. Probably fine.",
-        "Ria Castillo": "You need a title that works as a caption and a share card. Short, punchy, clickable. Six words max or you're losing people.",
-    },
-    "friday": {
-        "Margaret Chen": "Last chance to catch something wrong. You take this seriously.",
-        "Stephanie 'Steph' Whitmore": "You need a final verdict. Approve or send back - no ambiguity.",
-        "Julian Torres": "You want to make sure your images aren't being undermined by bad layout.",
-        "Marcus Reid": "You're hoping the final package does the writing justice.",
-        "Devon Park": "You're confirming the site is ready to receive this.",
-    },
-    "saturday": {
-        "Margaret Chen": "You're checking the recipe page one more time. Old habit.",
-        "Stephanie 'Steph' Whitmore": "You're anxious until staging is confirmed.",
-        "Julian Torres": "You want to see your photos rendered properly on the site.",
-        "Marcus Reid": "You're reading the live preview, checking your words on the page.",
-        "Devon Park": "This is your show. Deploy, verify, done.",
-    },
-    "sunday": {
-        "Margaret Chen": "Publish day. You won't relax until it's live and correct.",
-        "Stephanie 'Steph' Whitmore": "This is the moment. You're leading the final push.",
-        "Julian Torres": "You want to see the published page. Your photos, live.",
-        "Marcus Reid": "Your words go public today. A mix of pride and dread.",
-        "Devon Park": "Push the button. Make sure nothing breaks.",
-        "Ria Castillo": "Publish day means content day. You're planning the social rollout - which shot goes first, what time to post, what the caption is.",
-    },
-}
-
-DAY_STAGE_DIRECTIONS = {
-    "monday": "Slack pings stack up as the team races to lock the concept.",
-    "tuesday": "Test trays cool on the rack while ratio notes keep changing.",
-    "wednesday": "Julian drops fresh lighting tests and everyone debates the hero shot.",
-    "thursday": "Draft copy is open in shared docs with comments arriving in bursts.",
-    "friday": "Final review is tense as approvals hinge on tiny fixes. Devon Park (site architect) joins to confirm deployment readiness.",
-    "saturday": "Devon Park (site architect) leads deployment prep - mostly quiet execution until a staging snag interrupts flow.",
-    "sunday": "Publish window is close and everyone is watching the clock.",
-}
 
 DAY_ARC = {
     "monday": (
@@ -182,31 +112,6 @@ DAY_ARC = {
         "TENSION: Last-second nerves or one final check. "
         "RESOLUTION: Published. A moment of warmth or exhausted relief."
     ),
-}
-
-_FIRST_MONDAY_OPENER = (
-    "This is the very first day of the team. You're all meeting in person (or online) for the first time. "
-    "You know names and roles from emails but nothing else. Walk in, size people up, introduce yourself briefly."
-)
-
-_DAY_OPENER_CONTEXT = {
-    "monday": "Start of a new week. You're arriving fresh (or not). Open the group chat or walk into the kitchen.",
-    "tuesday": "Day two. Picking up from yesterday's concept lock. Check in before diving into recipe work.",
-    "wednesday": "Photo day. Arriving at the set or dropping into the chat with visual work to share.",
-    "thursday": "Copy day. Opening your laptop or checking messages with writing on your mind.",
-    "friday": "End of the working week. Final review energy. Whatever's on your mind about wrapping this up.",
-    "saturday": "Weekend deployment. Quieter energy. Brief check-in before getting to work.",
-    "sunday": "Publish day. The anticipation is real. A quick word before the final push.",
-}
-
-_DAY_CLOSER_CONTEXT = {
-    "monday": "Concept is locked (or close enough). Confirm what was decided and sign off for the day.",
-    "tuesday": "Recipe draft is done. Close out the work session.",
-    "wednesday": "Hero shot is picked. Sign off - maybe a last comment about the images.",
-    "thursday": "Copy is submitted. Wrap up the writing discussion.",
-    "friday": "Review verdict is in. Close the week's creative work.",
-    "saturday": "Staging is done. Brief sign-off.",
-    "sunday": "It's published. A moment of relief, warmth, or exhaustion. Say goodnight.",
 }
 
 PROHIBITED = [
@@ -259,17 +164,6 @@ PROHIBITED = [
 ABSOLUTE_TURN_FLOOR = 5
 
 
-# History window, in prior lines, shown to a speaker. (opening_turn, later_turns).
-# "early" = mon-thu, "late" = fri-sun. #7160: at 4 lines a mid-stage speaker could not
-# see the question that opened the scene, so nobody ever answered it and nobody closed
-# it. The floor here must stay above the largest TICKS_RANGE upper bound below.
-# #7158: a module attribute so scripts/conversation_lab.py can sweep it as a lever.
-HISTORY_DEPTH: dict[str, tuple[int, int]] = {
-    "early": (16, 12),
-    "late": (20, 16),
-}
-
-
 TICKS_RANGE: dict[str, tuple[int, int]] = {
     "monday":    (6, 10),  # heated concept debate
     "tuesday":   (8, 10),  # was (5, 6): two lines wind down, too few to argue a ratio (#8285)
@@ -283,56 +177,9 @@ TICKS_RANGE: dict[str, tuple[int, int]] = {
     "sunday":    (8, 10),  # publish + warmth - was (3, 4), (4, 6), (5, 6) (#7079, #7082)
 }
 
-# Wind-down/stop knobs (#7680, #7681, #7629) — module attributes so the
-# conversation lab can sweep them. The defaults reproduce today's production
-# behaviour exactly: the regex goal check below is the only trigger, and a day
-# always ends by winding down over its last two ticks.
-WINDDOWN_TRIGGER: str = "regex"
 
-# How a model-based stop check decides a scene is done. Done =
-# decided >= decided_threshold and (not require_pushback or
-# pushback >= pushback_threshold).
-STOP_CHECK: dict = {
-    "provider": "haiku",
-    "decided_threshold": 0.7,
-    "require_pushback": True,
-    "pushback_threshold": 0.5,
-}
-
-# Per-day open-ended safety cap. When a day is present its cap replaces the
-# TICKS_RANGE roll; the tick after goal_met becomes the closing turn and the
-# day ends, or the cap is reached and the last tick closes as today. Only
-# valid with WINDDOWN_TRIGGER == "check".
-OPEN_ENDED_MAX_TICKS: dict = {}
-
-# One author writes each day's whole meeting (#8383 lab, production since #8384).
-# Measured through the production handlers on the same week: the per-line path
-# passed 1 of 6 days on the first judge try (Monday failed all 3), the author 6
-# of 6. The per-line path below stays until its deletion card; tests that cover
-# it set this to False. Never enabled from the environment.
-AUTHOR_MODE: bool = True
 _AUTHOR_PARSE_TRIES = 3
 
-# Every stop check is appended here (day, tick, decided, pushback, provider,
-# model, cost_usd). run_simulation clears it at start; the conversation lab
-# copies it into the result JSON after each arm.
-STOP_CHECK_LOG: list[dict] = []
-
-# Director knob (#7679, absorbs #7677) — module attribute so the conversation
-# lab can sweep it. enabled False (the production default) leaves every prompt
-# byte-identical to today: no rolls, no director call, no extra prompt lines.
-DIRECTOR: dict = {
-    "enabled": False,
-    "probability": 0.5,
-    "intensity": 3,
-    "rng_seed": 0,
-    "no_repeat_window": 14,
-}
-
-# One director record per simulated day (day, rolls, direction, fallback).
-# run_simulation clears it at start; the conversation lab copies it into the
-# result JSON after each arm, next to STOP_CHECK_LOG.
-DIRECTOR_LOG: list[dict] = []
 
 PROMPT_ECHO_PATTERNS = [
     "day:",
@@ -343,18 +190,6 @@ PROMPT_ECHO_PATTERNS = [
     "injected event",
 ]
 
-# #6840 - turn-taking nudge (one lever). Erik's complaint: conversations "are
-# like sound bites that have been put next to each other" - every non-opening
-# turn only had to "respond", which the model satisfied with a full, polished
-# paragraph regardless of what came before. This adds explicit permission for
-# a turn to be short, and puts answering a direct question ahead of anything
-# new, so a one-liner or a direct answer isn't read as an incomplete attempt.
-_REACTION_DIRECTIVE = (
-    "Your first sentence must respond to what was just said. Don't change the subject. "
-    "A turn can be one sentence, a single question, or a direct answer to the last "
-    "speaker - that is a complete turn, not a shortfall. If the last message asked "
-    "you something, answer it before you add anything new.\n"
-)
 
 
 @dataclass
@@ -374,10 +209,7 @@ def load_personas() -> dict[str, dict[str, Any]]:
 
 def participants_for_day(day: str) -> list[str]:
     if day == "monday":
-        # Julian added (#6832) — CHARACTER_DAY_GOALS already writes him a
-        # Monday goal ("You're already thinking about how this will
-        # photograph"), but the roster excluded him, so W36's Monday
-        # discussed photographing the dish with no photographer present.
+        # Julian joined Monday after W36 discussed photography without the photographer present.
         return ["Margaret Chen", "Marcus Reid", "Stephanie 'Steph' Whitmore", "Julian Torres", "Ria Castillo"]
     if day == "tuesday":
         # Devon was added in #6832 and taken off again in #8285. His Tuesday goal
@@ -684,7 +516,7 @@ def _load_memories(name: str) -> list[dict[str, str]]:
     """Load episode memories for a character for the prompt (#6968).
 
     A durable-store read failure degrades to "no memories" (the
-    known-coworker prompt fallback in build_system_prompt) rather than
+    empty-memory fallback in the whole-scene author prompt) rather than
     raising. See _load_memories_or_unavailable for the full list/fetch/
     legacy-fallback flow and for callers that need to distinguish this
     from a genuinely empty record.
@@ -693,25 +525,9 @@ def _load_memories(name: str) -> list[dict[str, str]]:
     return episodes
 
 
-def _is_genuinely_first_episode(memory_checks: Iterable[tuple[list, bool]]) -> bool:
-    """True only when EVERY character genuinely has no memory yet (#5030,
-    #6968 review finding 3).
-
-    Takes an iterable of ``(episodes, unavailable)`` pairs, as produced by
-    _load_memories_or_unavailable. A character whose read was `unavailable`
-    is "unknown", never "confirmed no history" — so ANY unavailable read
-    makes this False, regardless of how many characters have empty
-    episodes. Without this distinction, a durable-store read outage that
-    happens to hit every character would look identical to a genuine
-    premiere week and produce the false "meeting for the first time"
-    Monday opener (_FIRST_MONDAY_OPENER).
-    """
-    return all(not episodes and not unavailable for episodes, unavailable in memory_checks)
-
-
-# Deterministic patterns for WORD_CAPS=False. Each entry is a regex that
+# Deterministic patterns for removing obsolete per-line length limits. Each entry is a regex that
 # matches one numeric length constraint and removes it. The list is explicit
-# and covered by tests (tests/test_word_caps.py): a new phrasing in the voice
+# and covered by tests (tests/test_author_mode.py, test_author_prompt_keeps_persona_markers_and_drops_numeric_caps): a new phrasing in the voice
 # guides or shared rules must be added here deliberately, not discovered by
 # drifting past a catch-all.
 WORD_CAP_PATTERNS: tuple[str, ...] = (
@@ -737,8 +553,9 @@ def _strip_word_caps(text: str) -> str:
     """Remove every numeric length constraint from `text`, leaving the rest.
 
     Used on _CHARACTER_VOICE_GUIDES and _SHARED_CHARACTER_RULES when
-    WORD_CAPS is False. Deterministic: same input always maps to the same
-    output, and every removed phrase is one of WORD_CAP_PATTERNS above.
+    building the whole-scene author prompt. Deterministic: the same input
+    always maps to the same output, and every removed phrase is one of
+    WORD_CAP_PATTERNS above.
     """
     for pattern in WORD_CAP_PATTERNS:
         text = re.sub(pattern, "", text, flags=re.IGNORECASE)
@@ -748,316 +565,6 @@ def _strip_word_caps(text: str) -> str:
     return text.strip()
 
 
-# Cached within a single run_simulation() call so repeated turns for the same
-# character reuse one built prompt. run_simulation() clears this at the start
-# of every call (#6968) so a warm process (a long-lived Lambda, or a local
-# script simulating several weeks in one process) always loads a fresh
-# memory snapshot per stage/run instead of serving a prompt built from a
-# previous week's now-stale memory.
-_system_prompt_cache: dict[tuple[str, bool], str] = {}
-
-
-def build_system_prompt(persona: dict[str, Any]) -> str:
-    name = persona["name"]
-    cache_key = (name, WORD_CAPS)
-    if cache_key in _system_prompt_cache:
-        return _system_prompt_cache[cache_key]
-    comm = persona["communication_style"]
-    voice_guide = _CHARACTER_VOICE_GUIDES.get(name, "")
-    shared_rules = _SHARED_CHARACTER_RULES
-    if not WORD_CAPS:
-        voice_guide = _strip_word_caps(voice_guide)
-        shared_rules = _strip_word_caps(shared_rules)
-
-    who_you_are = _load_bio(name)
-
-    # Build relationship summary as emotional tensions, not data dump
-    relationships = persona.get("relationships", {})
-    rel_lines = []
-    for role, desc in relationships.items():
-        sentences = desc.split(". ")
-        rel_lines.append(f"- {role}: {'. '.join(sentences[:2])}.")
-
-    # Few-shot examples — last example demonstrates a greeting/arrival to anchor bookends
-    examples = _CHARACTER_EXAMPLE_MESSAGES.get(name, [])
-    examples_block = ""
-    if examples:
-        formatted = chr(10).join(f'- "{ex}"' for ex in examples)
-        examples_block = (
-            f"EXAMPLE MESSAGES (this is how you sound — match this energy and length):\n"
-            f"{formatted}\n\n"
-        )
-
-    # Episode memories — what this character remembers from recent weeks
-    memories = _load_memories(name)
-    memory_block = ""
-    if memories:
-        mem_lines = []
-        for ep in memories:
-            ep_concept = ep.get("concept", "unknown")
-            summary = ep.get("summary", "")
-            mem_lines.append(f"- {ep_concept}: {summary}")
-        memory_block = (
-            "WHAT YOU REMEMBER FROM RECENTLY:\n"
-            + chr(10).join(mem_lines) + "\n\n"
-        )
-    elif MEMORY_ONBOARDING_PILOT:
-        # Explicit pilot flag only (#6968) — a genuinely empty/unavailable
-        # memory must default to the "known coworker" fallback below, never
-        # this block. Without the flag, an empty memory.json or a failed
-        # write can no longer make a recurring character (e.g. Ria after her
-        # real first episode) falsely claim to be new.
-        memory_block = (
-            "THIS IS YOUR FIRST WEEK ON THE JOB.\n"
-            "You've never worked with these people before. You were hired separately. "
-            "You know everyone's name and role from email introductions, but you haven't "
-            "seen how they actually work. First impressions are forming RIGHT NOW. "
-            "Be slightly guarded, curious, or nervous depending on your personality.\n\n"
-        )
-    else:
-        # Empty or unavailable memory (#6968): a truthful known-coworker
-        # fallback, not a false first-week claim. This is the production
-        # default for a character with nothing in durable storage yet or a
-        # memory read/write that failed.
-        memory_block = (
-            "WHAT YOU REMEMBER FROM RECENTLY:\n"
-            "Nothing specific comes to mind about recent weeks - but these are your "
-            "established coworkers. You've worked with them before; the details of "
-            "the last week or two just aren't top of mind right now.\n\n"
-        )
-
-    result = (
-        f"You are {name} ({persona['role']}). Stay strictly in character.\n"
-        "Write ONE group chat message. No narration, no markdown, no role labels.\n\n"
-        f"WHO YOU ARE:\n{who_you_are}\n\n"
-        f"INTERNAL CONTRADICTIONS (these make you human - lean into them):\n"
-        f"{chr(10).join('- ' + c for c in persona.get('internal_contradictions', []))}\n\n"
-        f"KEY RELATIONSHIPS:\n{chr(10).join(rel_lines)}\n\n"
-        f"HOW YOU SPEAK:\n{voice_guide}\n\n"
-        f"{examples_block}"
-        f"{memory_block}"
-        f"SIGNATURE PHRASES (use as OCCASIONAL spice - once or twice a WEEK, not every message):\n"
-        f"{', '.join(comm.get('signature_phrases', []))}\n\n"
-        f"TRIGGERS (these make you react strongly): {', '.join(persona.get('triggers', []))}\n\n"
-        f"{shared_rules}\n\n"
-        "CHARACTER-SPECIFIC RULES:\n"
-        "- Signature phrases are spice, not default. Use at most once or twice a week.\n"
-        "- Email habits (signing with initials, etc.) do NOT apply in group chat.\n"
-        "- NEVER use em dashes (\u2014), en dashes (\u2013), or curly quotes (\u2018\u2019\u201c\u201d). "
-        "Use plain hyphens and straight apostrophes only.\n"
-        "- Conflict is natural. Disagree when your character would disagree. Don't smooth things over artificially."
-    )
-    _system_prompt_cache[cache_key] = result
-    return result
-
-
-def choose_model(character: str, default_model: str, mapping: dict[str, str] | None) -> str:
-    if not mapping:
-        return default_model
-    return mapping.get(character, mapping.get("default", default_model))
-
-
-def deadline_for_day(day: str) -> str:
-    if day == "thursday":
-        return "3:00 PM local"
-    if day == "saturday":
-        return "12:00 PM local"
-    return "5:00 PM local"
-
-
-def _deadline_meridiem(deadline: str) -> str | None:
-    m = re.search(r"\b(AM|PM)\b", deadline, re.IGNORECASE)
-    return m.group(1).lower() if m else None
-
-
-def _normalize_time_notation(text: str, deadline: str) -> str:
-    """Normalize chat times to explicit style like '4:00 pm'."""
-    meridiem = _deadline_meridiem(deadline)
-
-    # 4pm / 4 pm -> 4:00 pm
-    text = re.sub(
-        r"\b([1-9]|1[0-2])\s*(am|pm)\b",
-        lambda m: f"{m.group(1)}:00 {m.group(2).lower()}",
-        text,
-        flags=re.IGNORECASE,
-    )
-
-    # 4:00 (without am/pm) -> 4:00 pm when deadline gives a meridiem hint
-    if meridiem:
-        text = re.sub(
-            r"\b([1-9]|1[0-2]):([0-5][0-9])\b(?!\s*(?:am|pm)\b)",
-            lambda m: f"{m.group(1)}:{m.group(2)} {meridiem}",
-            text,
-            flags=re.IGNORECASE,
-        )
-        # by 5 / at 3 / due 4 -> by 5:00 pm / at 3:00 pm / due 4:00 pm
-        text = re.sub(
-            r"\b(by|at|due)\s+([1-9]|1[0-2])\b(?!\s*[:0-9]|(?:\s*(?:am|pm)\b))",
-            lambda m: f"{m.group(1)} {m.group(2)}:00 {meridiem}",
-            text,
-            flags=re.IGNORECASE,
-        )
-
-    return text
-
-
-def _strip_24h_clock_references(msg: str) -> str:
-    """Remove 24-hour clock references (e.g. "17:42" or "at 05:00") from a
-    generated line, including any adjacent meridiem so stripping the time
-    never strands a trailing "pm"/"am" (card #7198).
-
-    _normalize_time_notation runs before this and can itself manufacture a
-    two-digit-hour clock string that looks 24-hour-shaped (e.g. "12 pm" ->
-    "12:00 pm"), so the meridiem-consuming pattern has to cover its output
-    too, not just raw model text.
-    """
-    meridiem = r"(?:\s*[aApP]\.?[mM]\.?)?"
-    msg = re.sub(rf"\bat\s+\d{{2}}:\d{{2}}{meridiem}\b", "", msg)
-    msg = re.sub(rf"\b[012]\d:\d{{2}}{meridiem}\b", "", msg)
-    # The removal above can leave a leftover space directly before
-    # punctuation (e.g. "scrolling ." after "scrolling at 17:00 pm." loses
-    # the time phrase but not the space that preceded it) - collapse that
-    # too rather than shipping the artifact to readers.
-    msg = re.sub(r"\s+([,.;:!?])", r"\1", msg)
-    return " ".join(msg.split())
-
-
-def _canonicalize_flour_ricotta_ratios(text: str) -> str:
-    """Canonicalize ratio wording to flour:ricotta to avoid contradictory phrasing."""
-    number = r"\d+(?:\.\d+)?"
-
-    # "1:1 flour to ricotta" -> "1:1 flour:ricotta"
-    text = re.sub(
-        rf"\b({number})\s*:\s*({number})\s*flour\s+to\s+ricotta\b",
-        lambda m: f"{m.group(1)}:{m.group(2)} flour:ricotta",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # "1:1 ricotta to flour" -> "1:1 flour:ricotta" (swap values)
-    text = re.sub(
-        rf"\b({number})\s*:\s*({number})\s*ricotta\s+to\s+flour\b",
-        lambda m: f"{m.group(2)}:{m.group(1)} flour:ricotta",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # "1:1 flour:ricotta" (already canonical shape)
-    text = re.sub(
-        rf"\b({number})\s*:\s*({number})\s*flour\s*:\s*ricotta\b",
-        lambda m: f"{m.group(1)}:{m.group(2)} flour:ricotta",
-        text,
-        flags=re.IGNORECASE,
-    )
-    # "1:1 ricotta:flour" -> "1:1 flour:ricotta" (swap values)
-    text = re.sub(
-        rf"\b({number})\s*:\s*({number})\s*ricotta\s*:\s*flour\b",
-        lambda m: f"{m.group(2)}:{m.group(1)} flour:ricotta",
-        text,
-        flags=re.IGNORECASE,
-    )
-    return text
-
-
-def _jaccard_similarity(a: str, b: str) -> float:
-    ta = token_set(a)
-    tb = token_set(b)
-    if not ta or not tb:
-        return 0.0
-    return len(ta & tb) / max(1, len(ta | tb))
-
-
-def _is_repetitive_candidate(candidate: str, recent_lines: list[str], threshold: float = 0.72) -> bool:
-    """Detect near-duplicate wording against recent messages."""
-    recent_msgs = []
-    for line in recent_lines[-6:]:
-        parts = line.split(": ", 1)
-        recent_msgs.append(parts[1] if len(parts) == 2 else line)
-    return any(_jaccard_similarity(candidate.lower(), prev.lower()) >= threshold for prev in recent_msgs)
-
-
-def _shared_trigram_with_recent(candidate: str, recent_lines: list[str]) -> bool:
-    candidate_tokens = re.findall(r"[a-z']+", candidate.lower())
-    if len(candidate_tokens) < 3:
-        return False
-    candidate_ngrams = {
-        " ".join(candidate_tokens[i:i+3]) for i in range(len(candidate_tokens) - 2)
-    }
-    if not candidate_ngrams:
-        return False
-
-    stop = {"the", "a", "an", "and", "or", "in", "on", "is", "it", "to", "of", "at", "we", "i"}
-    meaningful = {ng for ng in candidate_ngrams if not all(w in stop for w in ng.split())}
-    if not meaningful:
-        return False
-
-    for line in recent_lines[-6:]:
-        parts = line.split(": ", 1)
-        prev = parts[1] if len(parts) == 2 else line
-        prev_tokens = re.findall(r"[a-z']+", prev.lower())
-        if len(prev_tokens) < 3:
-            continue
-        prev_ngrams = {" ".join(prev_tokens[i:i+3]) for i in range(len(prev_tokens) - 2)}
-        if meaningful & prev_ngrams:
-            return True
-    return False
-
-
-# --- Output-contract guards -------------------------------------------------
-# The existing repetition guards police VOCABULARY (_is_repetitive_candidate is
-# a Jaccard over tokens, _shared_trigram_with_recent is word trigrams). Neither
-# can see SHAPE. W38 shipped 21 of 21 lines across mon/tue/wed built as
-# "[claim] - [elaboration]" - five characters, three days, one hundred percent -
-# and every vocabulary guard passed it, because the words differed every time.
-#
-# EXPERIMENTS.md already recorded the near-miss: banning em dashes "moved the
-# model from an em dash to a plain hyphen but did not move any of the numbers -
-# the glyph was never the problem". sanitize_typographic_tells rewrites em
-# dashes to " - ", so the house style converted the tic instead of removing it.
-# The fix has to act on the construction, not the character.
-
-SHAPE_WINDOW = 3          # how many prior messages to look back at
-SHAPE_MAX_IN_WINDOW = 2   # at most this many of them may share the shape
-
-# Multiple of a character's stated MAXIMUM that counts as a gross violation.
-# Not 1.0: the budgets are aspirational and holding a speaker to exactly 12 words
-# risks the stilted output an independent review warned about. 1.3 still catches
-# the observed failure (everyone converging on 27-33 words regardless of budget)
-# while leaving natural variance alone. A lab lever so it can be swept.
-WORD_BUDGET_TOLERANCE = 1.3
-
-# Per-line rewrite guards (#7705) — module attributes so the conversation lab
-# can sweep them. A guard set False is NOT evaluated as a fault, so it cannot
-# trigger a rewrite. The defaults reproduce today's production behaviour
-# byte-for-byte: every guard runs exactly as before.
-REWRITE_GUARDS: dict = {"repetition": True, "shape": True, "word_budget": True}
-
-# Word-caps knob (#7705 follow-on). True renders every prompt byte-identical
-# to today (the production default). False strips the numeric length
-# constraints from the voice guides and shared rules (see WORD_CAP_PATTERNS)
-# and also suppresses the word_budget rewrite fault, so a caps-off run never
-# tells the model a number.
-WORD_CAPS: bool = True
-
-# #7791 P4 / RESEARCH_PLAN.md S3 R3: False (the production default) renders
-# every prompt byte-identical to today - speakers see only the light
-# `recipe_context` anchor (a one-line summary, no amounts). True appends the
-# scenario's `judge_recipe_facts` (the same ground-truth amounts/method the
-# lab judge scores against, built by `_build_judge_recipe_facts`) to that
-# anchor in `generate_turn`'s recipe line, so speakers argue from the same
-# facts the judge holds them to instead of inventing ratios (W39's gap).
-# A conversation-lab-only variant lever: `run_simulation`/`generate_turn`
-# accept `recipe_facts` as a plain parameter (never a module global itself);
-# this flag is the switch that decides whether that parameter is used.
-SPEAKERS_SEE_JUDGE_RECIPE_FACTS: bool = False
-
-# #6968: False (the default) is the production behaviour — a character with
-# no durable memory gets a truthful "known coworker, recent details
-# unspecified" line, never a false claim of being new. The literal
-# "THIS IS YOUR FIRST WEEK ON THE JOB" onboarding block only renders when
-# this is explicitly set True, e.g. for a deliberate premiere-week pilot
-# run. Recurring characters (every real character after their real first
-# episode) must never see onboarding text again, including when their
-# memory is empty or a write failed — so this must stay off in production.
-MEMORY_ONBOARDING_PILOT: bool = False
 
 # How many of a character's most recent durable weeks the prompt shows
 # (#6968, redesigned round 3). Retention itself is unbounded in durable
@@ -1065,556 +572,9 @@ MEMORY_ONBOARDING_PILOT: bool = False
 # choice, not a storage limit.
 PROMPT_MEMORY_WEEKS: int = 2
 
-# One record per generated line (#7705): day, speaker, the fault keys that
-# fired, whether the draft was rewritten, draft/final word counts, the draft
-# text (truncated to 300 chars), and whether the CoT guard retried. Cleared by
-# run_simulation; the conversation lab copies it into result JSONs next to
-# STOP_CHECK_LOG / DIRECTOR_LOG.
-REWRITE_LOG: list[dict] = []
 
 
-# Must match conversation_metrics.DASH_CLAUSE_RE exactly. Deliberately DUPLICATED
-# rather than imported: this module ships in the Vercel Lambda bundle and
-# conversation_metrics.py does not (see .vercelignore and RUNBOOK Incident 4 - a
-# backend import of an unbundled script fails ONLY in production).
-# test_shape_guard_matches_the_metric_definition pins the two together.
-#
-# The em/en dash arms are the whole point. An earlier version matched " - " only,
-# so an em-dash clause was classified `declarative`, escaped the guard, and was
-# THEN rewritten to " - " by sanitize_typographic_tells on the way out - the guard
-# was blind to the exact mechanism this tic uses.
-_DASH_CLAUSE_RE = re.compile(r" - |\u2014|\u2013")
-
-
-def _sentence_shape(message: str) -> str:
-    """Coarse syntactic signature of a message, ignoring its vocabulary."""
-    text = " ".join((message or "").split())
-    if not text:
-        return "empty"
-    if _DASH_CLAUSE_RE.search(text):
-        return "dash_clause"
-    if text.rstrip().endswith("?"):
-        return "question"
-    if len(text.split()) <= 8:
-        return "terse"
-    return "declarative"
-
-
-def _recent_shapes(recent_lines: list[str], window: int | None = None) -> list[str]:
-    """Shapes of the last `window` messages.
-
-    `window` resolves at CALL time, not import time. A default argument of
-    SHAPE_WINDOW binds once when the module loads, so a lab variant overriding
-    the module constant changed nothing - the same no-op bug #7158 fixed for
-    HISTORY_DEPTH, reintroduced here.
-    """
-    size = SHAPE_WINDOW if window is None else window
-    shapes = []
-    for line in (recent_lines or [])[-size:]:
-        parts = line.split(": ", 1)
-        shapes.append(_sentence_shape(parts[1] if len(parts) == 2 else line))
-    return shapes
-
-
-def _shape_is_saturated(candidate: str, recent_lines: list[str]) -> bool:
-    """Has this construction already dominated the last few turns?
-
-    A rate limit, not a ban - a dash clause is a legitimate way to talk. The
-    defect is every speaker using it every time.
-
-    Both SHAPE_WINDOW and SHAPE_MAX_IN_WINDOW are read at call time so the lab
-    levers actually bite.
-    """
-    shape = _sentence_shape(candidate)
-    if shape in ("empty", "terse"):
-        return False
-    return _recent_shapes(recent_lines).count(shape) >= SHAPE_MAX_IN_WINDOW
-
-
-def _word_budget_for(name: str) -> int | None:
-    """The character's own MAXIMUM, read from _CHARACTER_VOICE_GUIDES.
-
-    Parsed rather than duplicated so the number cannot drift away from the text
-    the model is actually shown. test_word_budgets_match_the_voice_guides pins
-    that every character still has one.
-    """
-    guide = _CHARACTER_VOICE_GUIDES.get(name, "")
-    found = re.search(r"MAXIMUM\s+(\d+)\s+words", guide)
-    return int(found.group(1)) if found else None
-
-
-def _over_word_budget(message: str, name: str) -> bool:
-    budget = _word_budget_for(name)
-    if not budget:
-        return False
-    return len(str(message).split()) > budget * WORD_BUDGET_TOLERANCE
-
-
-def _append_rewrite_log(
-    *,
-    day: str | None,
-    speaker: str | None,
-    faults: list[str],
-    rewritten: bool,
-    draft: str,
-    final: str,
-    cot_retry: bool,
-) -> None:
-    """Append one per-generated-line record to REWRITE_LOG (#7705)."""
-    REWRITE_LOG.append({
-        "day": day,
-        "speaker": speaker,
-        "faults": list(faults),
-        "rewritten": bool(rewritten),
-        "draft_words": len(str(draft).split()),
-        "final_words": len(str(final).split()),
-        "draft": str(draft)[:300],
-        "cot_retry": bool(cot_retry),
-    })
-
-
-# The rewrite prompt's separator and section labels. A rewrite reply that
-# contains any of them echoed the scaffold and is not used (#8267).
-_REWRITE_SCAFFOLD = ("---", "Your draft:", "Problems with it:")
-
-
-def generate_turn(
-    persona: dict[str, Any],
-    concept: str,
-    day: str,
-    stage: str,
-    deadline: str,
-    recent_lines: list[str],
-    event: str | None,
-    model: str,
-    mode: str,
-    prompt_style: str,
-    day_turn: int,
-    is_last_turn: bool = False,
-    photography_context: dict | None = None,
-    phase: str = "active",
-    prior_own_messages: list[str] | None = None,
-    is_first_episode: bool = False,
-    week_highlights: list[str] | None = None,
-    highlight_format: str = "plain",
-    recipe_context: str | None = None,
-    recipe_facts: str | None = None,
-    direction: Direction | None = None,
-    retry_note: str | None = None,
-) -> str:
-    if mode == "template":
-        sig = persona["communication_style"].get("signature_phrases", ["Right."])
-        pick = random.choice(sig)
-        event_bit = f" Also: {event}." if event else ""
-        line = f"{pick} {day.title()} is {stage}; deadline is {deadline}. For {concept}, lock one decision now.{event_bit}"[:220]
-        _append_rewrite_log(
-            day=day,
-            speaker=persona.get("name"),
-            faults=[],
-            rewritten=False,
-            draft=line,
-            final=line,
-            cot_retry=False,
-        )
-        return line
-
-    # Use deeper context for late-week days that need to reference earlier decisions.
-    # Full-context testing showed 12/8 depth + compression highlights outperforms raw dump.
-    # #7158: module-level so the conversation lab can override it as a variant lever.
-    # #7160: the opening-turn floor must exceed the stage's turn count, or the scene's
-    # own premise scrolls out of the window before anyone can answer it.
-    lo_key = "late" if day.lower() in ("friday", "saturday", "sunday") else "early"
-    first, rest = HISTORY_DEPTH[lo_key]
-    history_depth = first if day_turn == 1 else rest
-    history = "\n".join(recent_lines[-history_depth:]) if recent_lines else "(no prior messages)"
-    event_line = f"Injected event: {event}" if event else "Injected event: none"
-    # #8264: why the judge rejected an earlier attempt at this same day, so the
-    # retry fixes the named problem instead of rerolling blind. Absent on a
-    # first attempt, which keeps every first-attempt prompt byte-identical.
-    retry_line = (
-        "Writer's note, not part of the scene (never mention it): an earlier draft "
-        f"of today's conversation was rejected. {retry_note} Fix that in this draft.\n"
-        if retry_note else ""
-    )
-    recipe_line = f"Recipe anchor: {recipe_context}\n" if recipe_context else ""
-    # #7791 P4: off by default (production-identical). On, appends the same
-    # ground-truth facts the judge scores against (recipe_facts) to what
-    # speakers see, so they cannot invent ratios the judge then penalises.
-    if SPEAKERS_SEE_JUDGE_RECIPE_FACTS and recipe_facts:
-        recipe_line = f"{recipe_line}Recipe facts: {recipe_facts}\n"
-
-    # Week context: inject highlights from prior days so characters can reference them
-    week_context_block = ""
-    if week_highlights:
-        if highlight_format == "xml":
-            # XML-structured injection — models parse structured tags efficiently
-            day_entries = []
-            open_threads = []
-            for h in week_highlights:
-                parts = h.split(":", 1)
-                day_name = parts[0].strip() if len(parts) == 2 else "Unknown"
-                detail = parts[1].strip() if len(parts) == 2 else h
-                # Extract "Still open:" threads
-                if "still open:" in detail.lower():
-                    idx = detail.lower().index("still open:")
-                    open_threads.append(f'    <thread day="{day_name}">{detail[idx + 11:].strip()}</thread>')
-                    detail = detail[:idx].strip().rstrip(".")
-                day_entries.append(f'  <day name="{day_name}">\n    <summary>{detail}</summary>\n  </day>')
-            xml_block = "<week_context>\n" + "\n".join(day_entries) + "\n"
-            if open_threads:
-                xml_block += "  <open_threads>\n" + "\n".join(open_threads) + "\n  </open_threads>\n"
-            xml_block += "</week_context>\n"
-            week_context_block = (
-                f"{xml_block}"
-                "You remember these events. You may reference them naturally if relevant, "
-                "but don't force it. React to TODAY's conversation first.\n\n"
-            )
-        else:
-            # Plain text bullet injection (default)
-            highlights_text = "\n".join(f"- {h}" for h in week_highlights)
-            week_context_block = (
-                f"WEEK SO FAR (key decisions and moments from earlier this week):\n"
-                f"{highlights_text}\n"
-                "You remember these events. You may reference them naturally if relevant, "
-                "but don't force it. React to TODAY's conversation first.\n\n"
-            )
-
-    # Anti-repetition: remind character what they already said today
-    self_awareness_block = ""
-    if prior_own_messages and len(prior_own_messages) >= 1:
-        quoted = "\n".join(f"  - \"{' '.join(m.split())[:120]}\"" for m in prior_own_messages[-4:])
-        self_awareness_block = (
-            f"\nYou already said today:\n{quoted}\n"
-            "Do NOT repeat these phrases, ideas, or sentence structures. Say something new.\n"
-        )
-
-    # Meeting goal + character goal for this day
-    goal = DAY_MEETING_GOAL[day]
-    char_name = persona["name"]
-    char_goal = CHARACTER_DAY_GOALS.get(day, {}).get(char_name, "")
-    goal_line = f"The team needs to: {goal['objective']}"
-    char_goal_line = f"Your goal today: {char_goal}" if char_goal else ""
-
-    # Wind-down phase directives
-    phase_directive = ""
-    if phase == "winding_down":
-        phase_directive = (
-            "\nThe main decision has been made. The conversation is cooling down naturally. "
-            "React to what was decided, tie up a loose end, or make a small comment. "
-            "Don't start new debates."
-        )
-    # "closing" phase is handled by the existing closer directive below
-
-    no_clock_line = "Do NOT mention specific clock times."
-
-    # Director (#7679): the shared scene and this character's own pre-meeting
-    # line. A fallback direction behaves exactly like today's plain scene, and
-    # an absent direction keeps every prompt byte-identical to today.
-    director_scene_block = ""
-    director_before_block = ""
-    if direction is not None and not direction.fallback:
-        scene = (direction.scene or "").strip()
-        own_line = (direction.characters or {}).get(persona.get("name", ""), "").strip()
-        if scene and day_turn != 1:
-            director_scene_block = f"Scene today: {scene}\n"
-        if own_line:
-            director_before_block = f"Before this meeting: {own_line}\n"
-
-    if prompt_style == "scene":
-        scene_sentence = DAY_STAGE_DIRECTIONS[day]
-        if direction is not None and not direction.fallback and (direction.scene or "").strip():
-            scene_sentence = direction.scene.strip()
-        arc_summary = _build_dynamic_arc(day, concept, photography_context=photography_context)
-
-        if day_turn == 1:
-            arrival_context = _DAY_OPENER_CONTEXT[day]
-            if is_first_episode and day == "monday":
-                arrival_context = _FIRST_MONDAY_OPENER
-            opener_directive = (
-                "IMPORTANT: You are opening this conversation. Nobody has spoken yet today.\n"
-                "You just arrived - walked in, logged on, opened the chat. "
-                "Your first words should reflect that arrival moment in YOUR voice. "
-                "Then introduce the day's topic.\n"
-                f"Arrival context: {arrival_context}"
-            )
-            prompt = (
-                f"Episode concept: {concept}\n"
-                f"{recipe_line}"
-                f"Day: {day.title()} ({stage})\n"
-                f"Scene context: {scene_sentence}\n"
-                f"Story arc: {arc_summary}\n"
-                f"{goal_line}\n"
-                f"{char_goal_line}\n"
-                f"{no_clock_line}\n"
-                f"{event_line}\n"
-                f"{retry_line}"
-                f"{director_before_block}"
-                f"{week_context_block}"
-                f"Recent chat:\n{history}\n\n"
-                f"{self_awareness_block}"
-                f"{opener_directive}\n"
-                "What do you say next?"
-            )
-        else:
-            previous_speaker = ""
-            if recent_lines:
-                last_line = recent_lines[-1]
-                previous_speaker = last_line.split(":")[0].strip()
-
-            name = persona["name"].split()[0]
-            # #5919 — Never ask the model to narrate interiority out loud.
-            # The prior prompt asked for "what does X actually feel" + "then
-            # write only their message", and Haiku (ignoring the 'then')
-            # spilled the interiority verbatim into W15 dialogue ("What Steph
-            # actually feels: ..."). Keep the guidance implicit in the system
-            # prompt/voice guide; at turn time just ask for spoken dialogue.
-            role_chain = (
-                f"Speak in first person as {name}, reacting to {previous_speaker}. "
-                "Your entire response is their spoken message — no stage directions, "
-                "no inner thoughts, no 'what X feels', no meta-commentary."
-            ) if previous_speaker else "React to what was just said. Stay in the scene."
-
-            reaction_directive = _REACTION_DIRECTIVE
-
-            prompt = (
-                f"Day: {day.title()} - {stage}.\n"
-                f"{recipe_line}"
-                f"{goal_line}\n"
-                f"{char_goal_line}\n"
-                f"{no_clock_line}\n"
-                f"{event_line}\n"
-                f"{retry_line}"
-                f"{director_scene_block}{director_before_block}"
-                f"{week_context_block}"
-                f"Recent chat:\n{history}\n\n"
-                f"{self_awareness_block}"
-                f"{reaction_directive}"
-                f"{phase_directive}\n"
-                f"{role_chain}"
-            )
-    else:
-        opener_hint = ""
-        reaction_hint = ""
-        if day_turn == 1:
-            full_arrival = _DAY_OPENER_CONTEXT[day]
-            if is_first_episode and day == "monday":
-                full_arrival = _FIRST_MONDAY_OPENER
-            opener_hint = (
-                "\nIMPORTANT: You are opening this conversation. Nobody has spoken yet today. "
-                "You just arrived. Your first words should reflect that arrival in YOUR voice. "
-                "Then introduce the topic.\n"
-                f"Arrival context: {full_arrival}\n"
-            )
-        else:
-            reaction_hint = _REACTION_DIRECTIVE
-        prompt = (
-            f"Episode concept: {concept}\n"
-            f"{recipe_line}"
-            f"Day: {day.title()} ({stage})\n"
-            f"{goal_line}\n"
-            f"{char_goal_line}\n"
-            f"{no_clock_line}\n"
-            f"{event_line}\n"
-            f"{retry_line}"
-            f"{director_scene_block}{director_before_block}"
-            f"{week_context_block}"
-            f"Recent chat:\n{history}\n\n"
-            f"{self_awareness_block}"
-            f"{reaction_hint}"
-            f"{phase_directive}\n"
-            f"{opener_hint}"
-            "Write this character's next message. Keep it natural and specific."
-        )
-
-    # Closer directive for the last message of the day
-    if is_last_turn:
-        prompt += (
-            "\n\nIMPORTANT: This is the LAST message of today's conversation. "
-            "The work is done. You're leaving - closing the laptop, walking out, signing off. "
-            "Briefly confirm what was decided, then end with a departure in YOUR voice. "
-            "Don't introduce new topics or ask questions. Keep it short.\n"
-            f"Wrap-up context: {_DAY_CLOSER_CONTEXT[day]}"
-        )
-
-    cot_retry_flag = [False]
-    msg = generate_response(
-        prompt=prompt,
-        system_prompt=build_system_prompt(persona),
-        model=model,
-        temperature=0.8,
-    ).strip()
-    msg = _guard_cot_leak(
-        msg,
-        prompt=prompt,
-        persona=persona,
-        model=model,
-        retry_flag=cot_retry_flag,
-    )
-    draft = msg
-    # One bounded rewrite, as before - but it now names EVERY failing part of the
-    # output contract at once rather than only near-duplicate wording. Same API
-    # cost, more signal. REWRITE_GUARDS (#7705) makes each fault a lab knob: a
-    # guard set False is not evaluated, so it cannot trigger a rewrite. Defaults
-    # reproduce today's production behaviour byte-for-byte.
-    _faults: list[str] = []
-    _fault_keys: list[str] = []
-    if REWRITE_GUARDS.get("repetition", True) and (
-        _is_repetitive_candidate(msg, recent_lines) or _shared_trigram_with_recent(msg, recent_lines)
-    ):
-        _faults.append(
-            "It repeats wording already used in this conversation. Use different "
-            "phrasing and a new specific detail."
-        )
-        _fault_keys.append("repetition")
-    if REWRITE_GUARDS.get("shape", True) and _shape_is_saturated(msg, recent_lines):
-        _shape = _sentence_shape(msg)
-        if _shape == "dash_clause":
-            _faults.append(
-                "It is built as '<claim> - <elaboration>', and the last few messages "
-                "already were. Everyone has been talking in that one shape. Say this "
-                "as a plain sentence, or two short ones, or a direct reply - anything "
-                "but another hyphenated afterthought."
-            )
-        else:
-            _faults.append(
-                f"Its sentence shape ({_shape}) already dominates the last few "
-                "messages. Vary the construction, not just the words."
-            )
-        _fault_keys.append(f"shape:{_shape}")
-    if REWRITE_GUARDS.get("word_budget", True) and WORD_CAPS:
-        _budget = _word_budget_for(persona.get("name", ""))
-        if _budget and _over_word_budget(msg, persona.get("name", "")):
-            _faults.append(
-                f"It is {len(msg.split())} words. Your MAXIMUM is {_budget}. Cut it to "
-                f"{_budget} words or fewer - keep the one thing that matters and drop the "
-                "rest. Do not pad it back out."
-            )
-            _fault_keys.append("word_budget")
-
-    if _faults:
-        # Build the rewrite ON TOP of the original prompt, never from scratch.
-        # A from-scratch rewrite dropped the day's goal, the phase directive, the
-        # recipe anchor AND the closer directive - so a final turn that tripped
-        # the repetition guard was regenerated with nothing telling it not to ask
-        # a question. W38 Wednesday ended on "can we lock the timing before Julian
-        # shoots again?", the judge scored arc_resolution 3 for an unresolved arc,
-        # and the stage failed three times. The closer rule existed the whole
-        # time; the rewrite just could not see it.
-        _fault_list = "\n".join(f"- {f}" for f in _faults)
-        _separator, _draft_label, _problems_label = _REWRITE_SCAFFOLD
-        rewrite_prompt = (
-            f"{prompt}\n\n"
-            f"{_separator}\n"
-            f"{_draft_label}\n{msg}\n\n"
-            f"{_problems_label}\n{_fault_list}\n\n"
-            "Rewrite it as ONE message fixing every problem above. "
-            "Every instruction earlier in this prompt still applies"
-            + (" - including the LAST-MESSAGE rule: confirm what was decided and "
-               "sign off, do not ask a question." if is_last_turn else ".")
-        )
-        rewrite = generate_response(
-            prompt=rewrite_prompt,
-            system_prompt=build_system_prompt(persona),
-            model=model,
-            temperature=0.9,
-        ).strip()
-        rewrite = _guard_cot_leak(
-            rewrite,
-            prompt=rewrite_prompt,
-            persona=persona,
-            model=model,
-            retry_flag=cot_retry_flag,
-        )
-        # The reply sometimes carries the prompt's own scaffold back with it
-        # (#8267): W38 Tuesday published "...instead of structure. --- Butter's
-        # ...". Such a reply is not one clean message, so the draft stands; the
-        # log records the "scaffold_echo" fault and the line as not rewritten.
-        if any(part in rewrite for part in _REWRITE_SCAFFOLD):
-            _fault_keys.append("scaffold_echo")
-        else:
-            msg = rewrite
-
-    msg = sanitize_typographic_tells(msg)
-    msg = _normalize_time_notation(msg, deadline)
-    msg = _canonicalize_flour_ricotta_ratios(msg)
-    msg = _strip_24h_clock_references(msg)
-    final = " ".join(msg.split())
-    _append_rewrite_log(
-        day=day,
-        speaker=persona.get("name"),
-        faults=_fault_keys,
-        rewritten=bool(_faults) and "scaffold_echo" not in _fault_keys,
-        draft=draft,
-        final=final,
-        cot_retry=cot_retry_flag[0],
-    )
-    return final
-
-
-# #5919 / #5920 — Chain-of-thought leak guard. Haiku occasionally ignores
-# "write only the message" and spills interiority like "What Steph actually
-# feels: ...". These patterns get caught post-generation, the model is
-# asked to retry once, and a second leak hard-fails the turn so nothing
-# bad ships to the episode JSON.
-_COT_LEAK_RE = re.compile(
-    r"^\s*(?:what|how)\s+\w+(?:\s+\w+)?\s+(?:actually\s+)?"
-    r"(?:feels?|thinks?|wants?|would\s+say|is\s+thinking)\s*[:\-]",
-    re.IGNORECASE,
-)
-
-
-def _has_cot_leak(text: str) -> bool:
-    if not text:
-        return False
-    # Check first line — leaks always appear at the start of the response.
-    first_line = text.lstrip().split("\n", 1)[0]
-    return bool(_COT_LEAK_RE.match(first_line))
-
-
-def _guard_cot_leak(
-    msg: str,
-    *,
-    prompt: str,
-    persona: dict,
-    model: str,
-    retry_flag: list[bool] | None = None,
-) -> str:
-    """Detect interiority leakage and retry once with a stricter instruction.
-
-    Raises RuntimeError if the model leaks twice in a row — the caller's
-    cron stage will catch it via _run_stage and write a failure record
-    instead of shipping contaminated dialogue.
-
-    `retry_flag` is an optional single-element list the caller can pass to
-    learn whether a retry happened; generate_turn uses it to record the CoT
-    retry in REWRITE_LOG (#7705).
-    """
-    if not _has_cot_leak(msg):
-        return msg
-
-    if retry_flag is not None:
-        retry_flag[0] = True
-
-    retry_prompt = (
-        f"{prompt}\n\n"
-        "CRITICAL CORRECTION: your previous response leaked the chain-of-thought. "
-        "Output ONLY the spoken dialogue in first person. "
-        "No 'What X feels/thinks', no stage directions, no meta-commentary."
-    )
-    retry = generate_response(
-        prompt=retry_prompt,
-        system_prompt=build_system_prompt(persona),
-        model=model,
-        temperature=0.6,
-    ).strip()
-    if _has_cot_leak(retry):
-        raise RuntimeError(
-            f"Dialogue CoT leak after retry (persona={persona.get('name')!r}): "
-            f"{retry[:120]!r}"
-        )
-    return retry
-
-
+# Prompt-echo scoring helpers.
 def _word_shingles(text: str, n: int = 6) -> set[tuple[str, ...]]:
     words = re.findall(r"[a-z']+", text.lower())
     return {tuple(words[i:i + n]) for i in range(len(words) - n + 1)}
@@ -2239,133 +1199,6 @@ def _build_dynamic_arc(day: str, concept: str, photography_context: dict | None 
     return base
 
 
-# Domain keywords that boost a character's likelihood of speaking next
-_DOMAIN_KEYWORDS: dict[str, list[str]] = {
-    "Margaret Chen": ["recipe", "ratio", "batter", "flour", "butter", "oven", "temperature", "dough", "technique", "crust", "filling", "ingredient"],
-    "Stephanie 'Steph' Whitmore": ["approve", "decision", "timeline", "deadline", "team", "consensus", "feedback", "direction", "strategy"],
-    "Julian Torres": ["photo", "shot", "lighting", "angle", "visual", "image", "composition", "negative space", "styling", "aesthetic"],
-    "Marcus Reid": ["copy", "headline", "description", "words", "writing", "draft", "tone", "voice", "narrative", "story"],
-    "Devon Park": ["deploy", "staging", "site", "push", "build", "server", "code", "fix", "automated", "script"],
-    "Ria Castillo": ["social", "post", "caption", "engagement", "scroll", "hook", "share", "reel", "story", "followers"],
-}
-
-# Day leads — who opens each day (deterministic)
-_DAY_LEADS: dict[str, str] = {
-    "monday": "Margaret Chen",
-    "tuesday": "Margaret Chen",
-    "wednesday": "Julian Torres",
-    "thursday": "Marcus Reid",
-    "friday": "Margaret Chen",
-    "saturday": "Devon Park",
-    "sunday": "Stephanie 'Steph' Whitmore",
-}
-
-
-def _select_next_speaker(
-    names: list[str],
-    day: str,
-    tick: int,
-    recent_lines: list[str],
-    speak_counts: dict[str, int],
-    total_ticks: int,
-) -> str:
-    """Select next speaker using weighted reactive selection instead of round-robin.
-
-    Cast coverage is a hard constraint, not a preference (#7079). Every
-    weighting below is a *nudge* - even the 3.0x boost for a character who
-    hasn't spoken is only a thumb on a weighted-random scale, so a silent
-    character could be skipped right through the last turn. The judge's
-    `cast_coverage` dimension (#6861) scores that as a fail, which paused
-    W37 twice. So before any scoring: if the characters who haven't spoken
-    yet can only just fit in the turns that remain, the pool is restricted
-    to them. That guarantees full coverage whenever total_ticks >= len(names)
-    and degrades to best-effort when it doesn't.
-
-    The deadline lands one turn early whenever the day has a spare turn to
-    give. The final turn is the scene's closer (`phase="closing"`,
-    `is_last_turn=True`), and handing it to someone who hasn't said a word
-    all scene reads like a stranger wrapping up a meeting they weren't in.
-    Clearing the roster by the second-to-last turn leaves the closer to the
-    normal weighting, so it goes to someone with momentum. When there is no
-    spare turn (total_ticks == len(names)) the day is necessarily one line
-    each and the closer is a first-time speaker either way.
-    """
-    # Turn 1: day's lead character. Everyone is silent here, so this is the
-    # same answer the deadline branch below would give.
-    if tick == 0:
-        lead = _DAY_LEADS.get(day, names[0])
-        return lead if lead in names else names[0]
-
-    silent = [n for n in names if speak_counts.get(n, 0) == 0]
-    # Reserve the closing turn for a character who has already spoken, but
-    # only when the day can spare it.
-    has_spare_turn = total_ticks > len(names)
-    coverage_deadline = total_ticks - 1 if has_spare_turn else total_ticks
-    if silent and len(silent) >= coverage_deadline - tick:
-        names = silent
-        speak_counts = {n: 0 for n in silent}
-
-    scores: dict[str, float] = {name: 1.0 for name in names}
-
-    # Who just spoke? Suppress back-to-back
-    last_speaker = ""
-    if recent_lines:
-        last_speaker = recent_lines[-1].split(":")[0].strip()
-    for name in names:
-        first = name.split()[0]
-        if first == last_speaker:
-            scores[name] *= 0.15  # strong suppression, not zero
-
-    # Was this character addressed or referenced in recent messages?
-    last_few = " ".join(recent_lines[-3:]).lower() if recent_lines else ""
-    for name in names:
-        first = name.split()[0].lower()
-        if first in last_few:
-            # Don't boost if they were the one speaking (already counted above)
-            if first != last_speaker.lower():
-                scores[name] *= 2.5
-
-    # Domain relevance — was their topic area mentioned?
-    for name in names:
-        keywords = _DOMAIN_KEYWORDS.get(name, [])
-        if any(kw in last_few for kw in keywords):
-            scores[name] *= 1.8
-
-    # Hasn't spoken in a while? Boost
-    for name in names:
-        count = speak_counts.get(name, 0)
-        if count == 0 and tick >= 2:
-            scores[name] *= 3.0  # strong pull for silent characters
-        elif tick > 0 and count > 0:
-            # Check recency — how many turns since they last spoke
-            recency = 0
-            first = name.split()[0]
-            for line in reversed(recent_lines):
-                if line.split(":")[0].strip() == first:
-                    break
-                recency += 1
-            if recency >= 3:
-                scores[name] *= 1.5 + (recency - 3) * 0.3
-
-    # Cap any character at ~40% of day's messages
-    max_count = max(1, int(total_ticks * 0.4))
-    for name in names:
-        if speak_counts.get(name, 0) >= max_count:
-            scores[name] *= 0.05
-
-    # Weighted random selection
-    total = sum(scores.values())
-    if total <= 0:
-        return random.choice(names)
-    r = random.random() * total
-    cumulative = 0.0
-    for name in names:
-        cumulative += scores[name]
-        if r <= cumulative:
-            return name
-    return names[-1]
-
-
 def _scene_hero_landing(winner_variant: str, photography_context: dict | None) -> str:
     """Wednesday scene close. With a human review it is only a recommendation.
 
@@ -2603,14 +1436,14 @@ def _generate_episode_memories(
 def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
-    highlights: list[str], recent_lines: list[str], length_target: dict | None,
+    highlights: list[str], recent_lines: list[str],
     photography_context: dict | None = None, retry_note: str | None = None,
 ) -> str:
     """Give a scene author character references and the meeting's factual context."""
     sheets = []
     for name in names:
         persona = personas[name]
-        # The same memories build_system_prompt gives a per-line speaker.
+        # Give the author the saved context that informs each character.
         remembered = [f"- {m.get('concept', 'unknown')}: {m.get('summary', '')}" for m in _load_memories(name)]
         sheets.append(
             f"{name} ({persona['role']})\nBiography:\n{_load_bio(name)}\n"
@@ -2626,12 +1459,6 @@ def _author_prompt(
         if photography_context else ""
     )
     retry = f"An earlier draft of this meeting was rejected. {retry_note} Fix that in this draft.\n" if retry_note else ""
-    if length_target:
-        length = (
-            f"Write exactly {length_target['lines']} dialogue lines (production range {lo}-{hi}), "
-            f"with about {length_target['words']} words in the entire scene. "
-            "Vary individual line lengths freely; this is a scene length target."
-        )
     return (
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
@@ -2690,294 +1517,59 @@ def run_simulation(
     run_index: int,
     stage_only: str | None,
     injected_event: str | None,
-    ticks_per_day: int,
     mode: str,
-    prompt_style: str,
-    character_models: dict[str, str] | None,
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
     photography_context: dict | None = None,  # full photography data with rounds/reshoot
     initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
-    highlight_format: str = "plain",  # "plain" or "xml" — controls how week context is injected
     recipe_context: str | None = None,  # one-line recipe summary; anchors dialogue to the actual dish
-    recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts; only reaches a speaker
-    # prompt when SPEAKERS_SEE_JUDGE_RECIPE_FACTS is True (default False, production-identical)
+    recipe_facts: str | None = None,  # #7791 P4: the judge's ground-truth facts
+    # shown to the whole-scene author alongside the recipe summary
     message_sink: list | None = None,  # #7714: when given, IS the messages list - turns land here as
     # they are generated, so a caller that holds a reference to it can recover whatever was paid for
     # even if this function never returns (e.g. an exception mid-run). Production never passes it -
     # this parameter and the branch below are the only difference from before it existed.
     retry_note: str | None = None,  # #8264: the judge's reason an earlier attempt at this day failed
-    author_length_target: dict | None = None,  # lab's control length, never control text
 ) -> dict[str, Any]:
-    # #6968: force a fresh memory snapshot for this run. Without this, a
-    # process that stays warm across stages/weeks (a long-lived Lambda, or a
-    # local script simulating multiple weeks in one process) would keep
-    # serving system prompts built from whichever week's memory was loaded
-    # the first time each character's name hit the cache.
-    _system_prompt_cache.clear()
-
     personas = load_personas()
     start = datetime.now(timezone.utc).replace(hour=9, minute=0, second=0, microsecond=0)
     messages: list[Message] = message_sink if message_sink is not None else []
     recent_lines: list[str] = list(initial_recent_lines) if initial_recent_lines else []
     week_highlights: list[str] = list(initial_highlights) if initial_highlights else []
-    # In-run director history (#7679): later days in the same simulated week
-    # must not repeat an earlier day's (character, category) pairing, summary,
-    # or scene.
-    director_history: list[dict] = []
-
-    STOP_CHECK_LOG.clear()
-    DIRECTOR_LOG.clear()
-    REWRITE_LOG.clear()
-    if WINDDOWN_TRIGGER not in ("regex", "off", "check"):
-        raise ValueError(
-            f"WINDDOWN_TRIGGER must be 'regex', 'off', or 'check', got {WINDDOWN_TRIGGER!r}"
-        )
-    if OPEN_ENDED_MAX_TICKS and WINDDOWN_TRIGGER != "check":
-        raise ValueError("OPEN_ENDED_MAX_TICKS requires WINDDOWN_TRIGGER == 'check'")
-
-    # Detect first episode — every character genuinely has no memory (#5030,
-    # #6968 review finding 3).
-    first_episode = _is_genuinely_first_episode(
-        _load_memories_or_unavailable(name) for name in personas
-    )
 
     days = [stage_only] if stage_only else DAY_ORDER
     for day_i, day in enumerate(days):
         stage = DAY_STAGE[day]
         names = participants_for_day(day)
 
-        if AUTHOR_MODE:
-            prompt = _author_prompt(
-                personas, names, concept, day, recipe_context, recipe_facts,
-                injected_event, week_highlights, recent_lines, author_length_target,
-                photography_context, retry_note,
-            )
-            # A reply the parser rejects is rewritten, told why, up to
-            # _AUTHOR_PARSE_TRIES times, then raises: production must not lose a
-            # day to one stray narration line. The lab (author_length_target)
-            # counts and regenerates its own attempts, so it gets one try.
-            tries = 1 if author_length_target else _AUTHOR_PARSE_TRIES
-            for attempt in range(tries):
-                if mode == 'template':
-                    count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
-                    text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
-                else:
-                    text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
-                try:
-                    scene = _parse_author_scene(text, names)
-                    break
-                except ValueError as exc:
-                    exc.author_invalid_scene = text
-                    if attempt + 1 == tries:
-                        raise
-                    prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
-            for tick, (speaker, line) in enumerate(scene):
-                ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
-                messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
-                recent_lines.append(f"{speaker.split()[0]}: {line}")
-            if day == "wednesday" and image_paths:
-                _distribute_images_wednesday(messages, image_paths, day)
-            continue
-
-        # Override scene direction if photography context provides one
-        photo_scene = _build_photography_scene_direction(photography_context, day)
-        _original_direction = DAY_STAGE_DIRECTIONS.get(day, "")
-        if photo_scene:
-            DAY_STAGE_DIRECTIONS[day] = photo_scene
-
-        # Variable message count — sample fresh each day/run
-        open_ended_cap = OPEN_ENDED_MAX_TICKS.get(day) if OPEN_ENDED_MAX_TICKS else None
-        if open_ended_cap is not None:
-            # Open-ended safety cap: the day may still end EARLIER than this
-            # (the tick after goal_met becomes the closing turn), but it can
-            # never run past it.
-            day_ticks = open_ended_cap
-        elif ticks_per_day > 0:
-            # Caller passed explicit count (e.g. pipeline stage calling with ticks_per_day=4)
-            day_ticks = ticks_per_day
-        else:
-            lo, hi = TICKS_RANGE.get(day, (4, 6))
-            day_ticks = random.randint(lo, hi)
-
-        # Wednesday with photography context needs enough messages for hero debate
-        if day == "wednesday" and photography_context and open_ended_cap is None:
-            if photography_context.get("reshoot_happened"):
-                day_ticks = max(day_ticks, 10)  # panic + reshoot + hero debate
-            else:
-                day_ticks = max(day_ticks, 7)  # drop shots + disagree + converge on hero
-
-        speak_counts: dict[str, int] = {name: 0 for name in names}
-        day_messages_by_char: dict[str, list[str]] = {name: [] for name in names}
-        goal = DAY_MEETING_GOAL[day]
-        goal_met = False
-
-        # Director (#7679): roll and direct the scene ONCE per day, before the
-        # first turn. Skipped in template mode so --dry-run stays zero-API.
-        # DirectorError propagates (no silent empty result); a fallback
-        # direction simply runs the day with today's plain scene.
-        direction = None
-        if DIRECTOR["enabled"] and mode != "template":
-            rolls = roll_day(
-                seed_key=concept,
-                characters=names,
-                probability=DIRECTOR["probability"],
-                rng_seed=DIRECTOR["rng_seed"],
-                day=day,
-            )
-            direction = direct_day(
-                day=day,
-                concept=concept,
-                objective=goal["objective"],
-                rolls=rolls,
-                intensity=DIRECTOR["intensity"],
-                history=director_history,
-                model=default_model,
-                no_repeat_window=DIRECTOR["no_repeat_window"],
-            )
-            for roll in rolls:
-                if not roll.has_something:
-                    continue
-                line = (direction.characters or {}).get(roll.character, "").strip()
-                if not line:
-                    continue
-                director_history.append({
-                    "day": day,
-                    "character": roll.character,
-                    "category": roll.category,
-                    "summary": " ".join(line.split()[:10]),
-                    "scene": direction.scene,
-                })
-            DIRECTOR_LOG.append({
-                "day": day,
-                "rolls": [
-                    {
-                        "character": r.character,
-                        "category": r.category,
-                        "u": r.u,
-                        "has_something": r.has_something,
-                    }
-                    for r in rolls
-                ],
-                "direction": (
-                    {"scene": direction.scene, "characters": direction.characters}
-                    if not direction.fallback
-                    else None
-                ),
-                "fallback": direction.fallback,
-            })
-
-        for tick in range(day_ticks):
-            # In an open-ended day, the tick after goal_met is the closing
-            # turn and the day ends after it.
-            goal_already_met = goal_met
-            # Determine conversation phase
-            if open_ended_cap is not None and goal_already_met:
-                turn_phase = "closing"
-            elif tick == day_ticks - 1:
-                turn_phase = "closing"
-            elif goal_met or tick >= day_ticks - 2:
-                turn_phase = "winding_down"
-            else:
-                turn_phase = "active"
-
-            speaker = _select_next_speaker(names, day, tick, recent_lines, speak_counts, day_ticks)
-            speak_counts[speaker] = speak_counts.get(speaker, 0) + 1
-            persona = personas[speaker]
-            ts = start + timedelta(days=day_i, minutes=tick * (480 // max(1, day_ticks)))
-            deadline = deadline_for_day(day)
-            model = choose_model(speaker, default_model, character_models)
-
-            line = generate_turn(
-                persona=persona,
-                concept=concept,
-                day=day,
-                stage=stage,
-                deadline=deadline,
-                recent_lines=recent_lines,
-                event=injected_event,
-                model=model,
-                mode=mode,
-                prompt_style=prompt_style,
-                day_turn=tick + 1,
-                is_last_turn=(tick == day_ticks - 1) or (open_ended_cap is not None and goal_already_met),
-                photography_context=photography_context,
-                phase=turn_phase,
-                prior_own_messages=day_messages_by_char.get(speaker, []),
-                is_first_episode=first_episode,
-                week_highlights=week_highlights if week_highlights else None,
-                highlight_format=highlight_format,
-                recipe_context=recipe_context,
-                recipe_facts=recipe_facts,
-                direction=direction,
-                retry_note=retry_note,
-            )
-            day_messages_by_char[speaker].append(line)
-            recent_lines.append(f"{speaker.split()[0]}: {line}")
-            messages.append(Message(day=day, stage=stage, character=speaker, message=line, timestamp=ts.isoformat(), model=model))
-
-            # Check if meeting goal was met (only after a few turns of discussion)
-            if WINDDOWN_TRIGGER == "regex":
-                if not goal_met and tick >= 2:
-                    combined = " ".join(recent_lines[-3:]).lower()
-                    if re.search(goal["completion_signal"], combined):
-                        goal_met = True
-            elif WINDDOWN_TRIGGER == "check":
-                # mode="template" is the lab's zero-API dry run; the stop check
-                # is a paid call, so it is skipped there like the director.
-                if not goal_met and tick >= 2 and mode != "template":
-                    try:
-                        result = check_scene_done(
-                            lines=recent_lines,
-                            provider=STOP_CHECK["provider"],
-                            day=day,
-                            objective=goal["objective"],
-                            haiku_model=default_model,
-                        )
-                    except StopCheckError as exc:
-                        raise StopCheckError(f"stop check failed on {day} tick {tick}: {exc}") from exc
-                    STOP_CHECK_LOG.append({
-                        "day": day,
-                        "tick": tick,
-                        "decided": result.decided,
-                        "pushback": result.pushback,
-                        "provider": result.provider,
-                        "model": result.model,
-                        "cost_usd": result.cost_usd,
-                    })
-                    decided_ok = result.decided >= STOP_CHECK["decided_threshold"]
-                    pushback_ok = (
-                        (not STOP_CHECK["require_pushback"])
-                        or result.pushback >= STOP_CHECK["pushback_threshold"]
-                    )
-                    if decided_ok and pushback_ok:
-                        goal_met = True
-            # WINDDOWN_TRIGGER == "off": goal_met is never set; phases are
-            # purely tick-based.
-
-            if open_ended_cap is not None and goal_already_met:
-                break  # the closing turn that follows goal_met just finished
-
-        # Generate highlights for this day to carry forward into later days
-        if mode == "llm" and not stage_only:
-            day_msgs = [m for m in messages if m.day == day]
-            if day_msgs:
-                highlight = _generate_day_highlights(
-                    day=day,
-                    day_messages=day_msgs,
-                    concept=concept,
-                    model=default_model,
+        prompt = _author_prompt(
+            personas, names, concept, day, recipe_context, recipe_facts,
+            injected_event, week_highlights, recent_lines,
+            photography_context, retry_note,
+        )
+        for attempt in range(_AUTHOR_PARSE_TRIES):
+            if mode == "template":
+                count = TICKS_RANGE[day][0]
+                text = "\n".join(
+                    f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}"
+                    for i in range(count)
                 )
-                if highlight:
-                    week_highlights.append(f"{day.title()}: {highlight}")
-
-        # After all Wednesday messages are generated, distribute image attachments
+            else:
+                text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
+            try:
+                scene = _parse_author_scene(text, names)
+                break
+            except ValueError as exc:
+                exc.author_invalid_scene = text
+                if attempt + 1 == _AUTHOR_PARSE_TRIES:
+                    raise
+                prompt += f"\n\nYour previous draft was rejected: {exc}. Follow the output format exactly."
+        for tick, (speaker, line) in enumerate(scene):
+            ts = start + timedelta(days=day_i, minutes=tick * (480 // len(scene)))
+            messages.append(Message(day, stage, speaker, line, ts.isoformat(), default_model))
+            recent_lines.append(f"{speaker.split()[0]}: {line}")
         if day == "wednesday" and image_paths:
             _distribute_images_wednesday(messages, image_paths, day)
-
-        # Restore original scene direction if we overrode it
-        if photo_scene:
-            DAY_STAGE_DIRECTIONS[day] = _original_direction
 
     by_character: dict[str, int] = {}
     by_model: dict[str, int] = {}
@@ -2995,8 +1587,6 @@ def run_simulation(
         "run": run_index,
         "concept": concept,
         "default_model": default_model,
-        "prompt_style": prompt_style,
-        "character_models": character_models or {},
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "messages": [m.__dict__ for m in messages],
         "name_strip_transcript": [m.message for m in messages],
@@ -3020,20 +1610,16 @@ def main() -> None:
     parser.add_argument("--concept", required=True)
     parser.add_argument("--model", default=config.dialogue_model, help=f"Single default model (current: {config.dialogue_model})")
     parser.add_argument("--models", default=None, help="Comma-separated models for comparison")
-    parser.add_argument("--character-models", default=None, help="JSON map of character=>model, with optional default")
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--stage", choices=DAY_ORDER, default=None)
     parser.add_argument("--event", default=None)
-    parser.add_argument("--ticks-per-day", type=int, default=6)
     parser.add_argument("--mode", choices=["llm", "template"], default="llm")
-    parser.add_argument("--prompt-style", choices=["scene", "full"], default="full")
     parser.add_argument("--judge", action="store_true", help="Run Opus judge on each day with growing context")
     parser.add_argument("--judge-model", default=None, help="Override judge model (default: config.judge_model)")
     args = parser.parse_args()
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     models = parse_models(args.models) if args.models else [args.model]
-    character_models = json.loads(args.character_models) if args.character_models else None
 
     all_results: list[dict[str, Any]] = []
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -3047,14 +1633,11 @@ def main() -> None:
                 run_index=i,
                 stage_only=args.stage,
                 injected_event=args.event,
-                ticks_per_day=args.ticks_per_day,
                 mode=args.mode,
-                prompt_style=args.prompt_style,
-                character_models=character_models,
             )
             suffix = f"{args.stage}" if args.stage else "full-week"
             safe_model = model.replace("/", "_").replace(":", "-")
-            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-{args.prompt_style}-run{i}-{suffix}.json"
+            out_path = OUT_DIR / f"sim-{stamp}-{concept_slug}-{safe_model}-authored-run{i}-{suffix}.json"
             # Run judge if requested
             judge_results: dict[str, str] = {}
             if args.judge and not args.stage:
@@ -3125,7 +1708,6 @@ def main() -> None:
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "concept": args.concept,
         "mode": args.mode,
-        "prompt_style": args.prompt_style,
         "models": models,
         "results": all_results,
     }

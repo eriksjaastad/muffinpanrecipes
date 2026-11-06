@@ -9,7 +9,6 @@ closed.
   unchanged instrument is reported as a V3 test-retest.
 - `scripts/lab_offline_metrics.py` computes metrics from saved JSON with zero
   API calls and refuses sweep or empty results.
-- The SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever (R3) reaches the prompt.
 - Cost caps, prices, usage costs and balances that are non-finite or negative
   block rather than admit; the atomic pick writer trashes its temp file.
 
@@ -18,7 +17,7 @@ OpenRouter endpoints and judge/generation calls are monkeypatched. Model-set
 routing and pricing (P0) live in tests/test_lab_models.py.
 
 History: merged from test_research_prereqs_7791.py (card #7791, RESEARCH_PLAN.md
-section 3.2 prerequisites P1-P4) and test_review_fixes_7791.py (Codex review
+section 3.2 prerequisites P1-P3) and test_review_fixes_7791.py (Codex review
 regressions for #7791 / #7793).
 """
 
@@ -32,7 +31,6 @@ import pytest
 
 import scripts.conversation_lab as cl
 import scripts.lab_offline_metrics as lom
-import scripts.simulate_dialogue_week as sdw
 from backend.utils import model_router
 from tests.conversation_research_helpers import (
     fake_ab_result as _fake_ab_result,
@@ -459,104 +457,9 @@ def test_load_ab_result_rejects_non_ab_command(tmp_path):
         lom._load_ab_result(path)
 
 
-# ---------------------------------------------------------------------------
-# P4: SPEAKERS_SEE_JUDGE_RECIPE_FACTS variant lever
-# ---------------------------------------------------------------------------
-
-def _persona(name: str = "Margaret Chen") -> dict:
-    return {
-        "name": name,
-        "role": "Head Recipe Developer",
-        "communication_style": {"signature_phrases": ["Right."], "verbosity": "low"},
-        "internal_contradictions": [],
-        "relationships": {},
-        "triggers": [],
-    }
-
-
-def _capture_generate_turn_prompt(monkeypatch, *, flag: bool, recipe_facts: str | None):
-    monkeypatch.setattr(sdw, "SPEAKERS_SEE_JUDGE_RECIPE_FACTS", flag)
-    monkeypatch.setattr(sdw, "REWRITE_LOG", [])
-    prompts: list[str] = []
-
-    def fake_generate(prompt, system_prompt=None, model=None, temperature=None, **_kw):
-        prompts.append(prompt)
-        return "A fine reply that is long enough to pass the shape guards here today."
-
-    monkeypatch.setattr(sdw, "generate_response", fake_generate)
-    monkeypatch.setattr(sdw, "_guard_cot_leak", lambda m, **_kw: m)
-    monkeypatch.setattr(sdw, "build_system_prompt", lambda persona: "SYS")
-    sdw.generate_turn(
-        persona=_persona(),
-        concept="Spiral Bites",
-        day="monday",
-        stage="brainstorm",
-        deadline="5 pm",
-        recent_lines=[],
-        event=None,
-        model="test-model",
-        mode="openai",
-        prompt_style="scene",
-        day_turn=1,
-        is_last_turn=False,
-        recipe_context="Spiral Bites, a laminated pastry.",
-        recipe_facts=recipe_facts,
-    )
-    return prompts[0]
-
-
-def test_speakers_do_not_see_judge_recipe_facts_by_default(monkeypatch):
-    assert sdw.SPEAKERS_SEE_JUDGE_RECIPE_FACTS is False
-    prompt = _capture_generate_turn_prompt(
-        monkeypatch, flag=False, recipe_facts="Ground truth: 2 cups flour, bake 22 minutes.",
-    )
-    assert "Recipe anchor: Spiral Bites, a laminated pastry." in prompt
-    assert "Recipe facts:" not in prompt
-    assert "Ground truth: 2 cups flour" not in prompt
-
-
-def test_flag_off_prompt_is_byte_identical_regardless_of_recipe_facts_value(monkeypatch):
-    """The lever is a strict pass-through gate: with it off, whatever
-    recipe_facts the caller passes must never reach the prompt."""
-    prompt_without = _capture_generate_turn_prompt(monkeypatch, flag=False, recipe_facts=None)
-    prompt_with_facts_but_off = _capture_generate_turn_prompt(
-        monkeypatch, flag=False, recipe_facts="Ground truth: 2 cups flour, bake 22 minutes.",
-    )
-    assert prompt_without == prompt_with_facts_but_off
-
-
-def test_speakers_see_judge_recipe_facts_when_flag_is_on(monkeypatch):
-    prompt = _capture_generate_turn_prompt(
-        monkeypatch, flag=True, recipe_facts="Ground truth: 2 cups flour, bake 22 minutes.",
-    )
-    assert "Recipe anchor: Spiral Bites, a laminated pastry." in prompt
-    assert "Recipe facts: Ground truth: 2 cups flour, bake 22 minutes." in prompt
-    # Comes right after the recipe anchor line, before the rest of the prompt.
-    anchor_index = prompt.index("Recipe anchor:")
-    facts_index = prompt.index("Recipe facts:")
-    assert anchor_index < facts_index
-
-
-def test_flag_on_with_no_recipe_facts_leaves_prompt_unchanged(monkeypatch):
-    prompt = _capture_generate_turn_prompt(monkeypatch, flag=True, recipe_facts=None)
-    assert "Recipe facts:" not in prompt
-
-
-def test_speakers_see_judge_recipe_facts_is_an_allowed_variant_lever():
-    assert "SPEAKERS_SEE_JUDGE_RECIPE_FACTS" in cl.ALLOWED_VARIANT_ATTRS
-
-
-def test_variant_validation_accepts_bool_and_rejects_other_types():
-    cl.validate_variant(sdw, {"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": True})  # must not raise
-    cl.validate_variant(sdw, {"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": False})  # must not raise
-    with pytest.raises(cl.ConversationLabError, match="must be a bool"):
-        cl.validate_variant(sdw, {"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": "yes"})
-
-
 def test_run_arm_forwards_recipe_facts_to_run_simulation(monkeypatch):
-    """conversation_lab.py's own plumbing (_run_arm -> run_simulation) must
-    carry recipe_facts through unchanged - generate_turn's own use of it is
-    covered above."""
+    """conversation_lab.py's plumbing must carry recipe facts through
+    unchanged to the whole-scene author."""
     captured: dict = {}
 
     def fake_run_simulation(**kwargs):

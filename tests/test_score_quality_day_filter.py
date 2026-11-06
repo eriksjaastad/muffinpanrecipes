@@ -17,11 +17,11 @@ def test_score_quality_day_filter_matches_subset():
 
 # ---------------------------------------------------------------------------
 # #6832 - cast coverage: Julian/Devon were excluded from days where
-# CHARACTER_DAY_GOALS already wrote them a goal.
+# retired per-character day-goal prompt already wrote them a goal.
 # ---------------------------------------------------------------------------
 
 def test_monday_roster_includes_julian_the_photographer():
-    """Monday's roster excluded Julian while CHARACTER_DAY_GOALS wrote him a
+    """Monday's roster excluded Julian while retired per-character day-goal prompt wrote him a
     goal for that day ("You're already thinking about how this will
     photograph"), so a Monday about photographing the dish ran with no
     photographer present (W36)."""
@@ -91,12 +91,3 @@ def test_is_prompt_echo_near_miss_not_flagged():
 
     # Real rule text is "...group chat, not an email"; swap the last word.
     assert not is_prompt_echo("This is a group chat, seriously.")
-
-
-def test_reaction_directive_allows_short_turns_and_direct_answers():
-    """One turn-taking nudge (#6840): explicit permission for a one-sentence
-    turn, and priority on answering a direct question over adding something new."""
-    from scripts.simulate_dialogue_week import _REACTION_DIRECTIVE
-
-    assert "one sentence" in _REACTION_DIRECTIVE
-    assert "answer it before you add anything new" in _REACTION_DIRECTIVE

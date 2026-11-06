@@ -19,7 +19,7 @@ Single source of truth for every environment variable the muffinpanrecipes codeb
 
 | Var | Flags | Read at | Purpose |
 |---|---|---|---|
-| `OPENROUTER_API_KEY` | R, S | `backend/utils/model_router.py` (`_generate_openrouter`), `backend/agents/art_director.py` (`_photograph_recipe`), `backend/utils/stop_check.py` | Every paid model and image call goes through OpenRouter (#8343) |
+| `OPENROUTER_API_KEY` | R, S | `backend/utils/model_router.py` (`_generate_openrouter`), `backend/agents/art_director.py` (`_photograph_recipe`) | Every paid model and image call goes through OpenRouter (#8343) |
 | `BLOB_READ_WRITE_TOKEN` | R, S | `backend/storage.py:200`, `backend/publishing/site_builder.py`, `scripts/backfill_webp.py:102`, `scripts/fix_catalog.py:56`, `scripts/run_full_week.py:317`, `scripts/score_episodes.py:59`, `scripts/generate_recipe_page.py:527` | Vercel Blob auth for episode + image persistence and the static build's authoritative source reads. `_CloudBackend` crashes on start if missing on Vercel; the Vercel build must receive it at build time |
 | `CRON_SECRET` | R, S | `scripts/run_full_week.py:316`, `backend/admin/cron_routes.py` (via header check) | Vercel cron endpoint shared secret |
 | `JWT_SECRET` | R, S | `backend/auth/session.py:32`, `tests/test_auth.py:109` | Admin UI session token signing |

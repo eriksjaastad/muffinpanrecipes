@@ -18,14 +18,20 @@ import scripts.simulate_dialogue_week as sdw
 
 @pytest.fixture
 def chars_dir(tmp_path, monkeypatch):
-    """A characters dir holding a bio for every cast member, and no cached prompts."""
+    """A characters dir holding a bio for every cast member."""
     for name in sdw.load_personas():
         bio = tmp_path / sdw._char_dir_slug(name) / "bio.md"
         bio.parent.mkdir(parents=True)
         bio.write_text(f"# {name}\n\nA real bio.\n")
     monkeypatch.setattr(sdw, "CHARACTERS_DIR", tmp_path)
-    monkeypatch.setattr(sdw, "_system_prompt_cache", {})
     return tmp_path
+
+
+def _author_prompt(name: str) -> str:
+    return sdw._author_prompt(
+        sdw.load_personas(), [name], "Test Cups", "monday",
+        None, None, None, [], [],
+    )
 
 
 def _bio(chars_dir, name: str):
@@ -38,10 +44,8 @@ def test_every_shipped_character_has_a_bio():
 
 def test_a_missing_bio_raises_instead_of_using_the_backstory(chars_dir):
     _bio(chars_dir, "Margaret Chen").unlink()  # governance: allow-delete DS001: file the fixture wrote under pytest tmp_path
-    persona = sdw.load_personas()["Margaret Chen"]
-
     with pytest.raises(FileNotFoundError):
-        sdw.build_system_prompt(persona)
+        _author_prompt("Margaret Chen")
 
 
 def test_an_empty_bio_raises(chars_dir):
@@ -52,9 +56,7 @@ def test_an_empty_bio_raises(chars_dir):
 
 
 def test_the_prompt_carries_the_bio(chars_dir):
-    persona = sdw.load_personas()["Ria Castillo"]
-
-    assert "A real bio." in sdw.build_system_prompt(persona)
+    assert "A real bio." in _author_prompt("Ria Castillo")
 
 
 def test_missing_bios_names_missing_and_empty_ones(chars_dir):

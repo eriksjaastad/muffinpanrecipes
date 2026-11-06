@@ -94,9 +94,7 @@ to get the current baseline scores for the dimension you think is weak.
 dimension(s) Y. Name the dimensions. One lever per experiment - if two
 levers move at once, a win or loss cannot be attributed to either.
 3. **Offline blind A/B.** Generate N pairs (control prompt vs. variant
-prompt) through the *production* call shape (`mode="openai",
-prompt_style="scene", ticks_per_day=0`, plus a `recipe_context` anchor -
-see `scripts/conversation_lab.py --help` for the exact invocation), then
+prompt) through the shared authored-scene API. The lab adds frozen prior lines, optional recipe facts, and recovery accounting beyond the production cron call (see `scripts/conversation_lab.py --help`), then
 judge each pair **position-swapped** (variant-first and variant-second)
 so the judge's own position bias cancels out, and **blind** (the judge is
 not told which transcript is control vs. variant).
@@ -122,37 +120,23 @@ why this step exists now, not just as a formality.
 
 ## Where the levers live
 
-Verified against the code on 2026-09-06 (line numbers will drift; grep the
-symbol name if a citation looks stale):
+Current `conversation_lab ab` and `ab --sweep` runs use the authored-only
+`run_simulation` path. Of the constants described below, only `TICKS_RANGE`
+affects authored output: it sets the requested line range, and template mode
+uses its lower bound for line count. The older per-line prompt, history,
+rewrite, stop, director, and recipe-fact visibility controls below are kept as
+historical design notes; they are not accepted A/B variant levers. A variant
+using one of them is rejected before either arm can start, so it cannot spend
+on a no-op experiment.
 
-- `_SHARED_CHARACTER_RULES` - `scripts/simulate_dialogue_week.py:368`. The
-universal behavior rules injected into every character's system prompt
-(turn length, "talk about the food not the technology", stay in your
-lane). Older notes call this `_SHARED_RULES`; the actual symbol in the
-current code is `_SHARED_CHARACTER_RULES`. This is where the v2 nudge
-(pan-case example removal) and the #6840 turn-taking directive both live.
-- `_REACTION_DIRECTIVE` - `scripts/simulate_dialogue_week.py:248`, the
-#6840 turn-taking rule itself ("Your first sentence must respond to what
-was just said...").
-- `build_system_prompt` - `scripts/simulate_dialogue_week.py:484`. Assembles
-a character's full system prompt from their persona card, voice guide, and
-`_SHARED_CHARACTER_RULES`. Per-character voice tuning happens upstream of
-this function, in the voice guides it reads.
-- `DAY_STAGE_DIRECTIONS` - `scripts/simulate_dialogue_week.py:134`. The
-one-line scene-setting direction for each day of the week (Monday's
-"Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
-the lever for changing what a day is *about*.
-- `CHARACTER_DAY_GOALS` - `scripts/simulate_dialogue_week.py:78`. Per-day,
-per-character goals (e.g. Monday's Margaret: "You have strong feelings
-about whether this concept respects the craft."). This is the lever for
-changing what a specific character is trying to do on a specific day, and
-is what the #6832 roster fix (Julian added to Monday, Devon to Tuesday)
-had to be made consistent with.
-- `_JUDGE_SYSTEM_PROMPT` - `backend/admin/cron_routes.py:267`. The judge's
-own instructions and scoring rubric. Changing this changes what gets
-measured, not what gets generated - treat it as a separate, rarer kind of
-experiment (see "grader calibration" above), never bundle a judge-prompt
-change with a character-prompt change in the same experiment.
+Current authored-scene controls:
+
+- `TICKS_RANGE` sets the requested line range and is the only accepted `ab` variant.
+- `DAY_MEETING_GOAL` and `_author_prompt` define the whole-scene task and context. Changes require an authored-scene experiment, not a per-speaker variant.
+- `_JUDGE_SYSTEM_PROMPT` in `backend/admin/cron_routes.py` defines the production judge. Judge changes are separate calibration experiments and must never be bundled with generator changes.
+- `_SHARED_CHARACTER_RULES` is retained only as a `score_quality` prompt-echo reference; it is not injected into the authored prompt.
+
+Historical per-speaker identifiers such as <code>&#95;REACTION&#95;DIRECTIVE</code>, <code>build&#95;system&#95;prompt</code>, <code>DAY&#95;STAGE&#95;DIRECTIONS</code>, and <code>CHARACTER&#95;DAY&#95;GOALS</code> are retired. Their measured behavior remains documented in DIALS.md and EXPERIMENTS.md, but they are not runnable levers.
 
 ## Areas
 
@@ -161,21 +145,20 @@ different weeks' dialogue no matter which dish is in the prompt, found by
 grepping the corpus for phrases and shapes that repeat across weeks rather
 than by reading one week closely. Each names the metric(s) that track it
 (all shipped in `scripts/conversation_metrics.py` and
-`scripts/conversation_heatmap.py`) and the prompt lever most likely to move
-it.
+`scripts/conversation_heatmap.py`) and the historical source recorded for the retired per-speaker architecture. Those source labels are provenance, not runnable current levers.
 
 - **Structure** - claim-dash-mechanism sentences ("X sets the tone - the
 sear locks in the crust"), a uniform turn length around 24 words, almost no
 short lines. Metric: `dash_clause_rate` and `length_stdev`, alongside the
 existing `length_stats` mean (all shipped in `conversation_metrics.py`).
-Lever: `_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`
+Historical source: `_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>
 (`scripts/simulate_dialogue_week.py:368` / `:248`).
 - **Frames** - "X is the story / the hook / the key", "that's what / where
-...". Metric: `frame_claim_rate` (shipped). Lever:
-`_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`.
+...". Metric: `frame_claim_rate` (shipped). Historical source:
+`_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>.
 - **Agree-openers** - a turn opening with agreement before anything else:
 "Fair", "Yeah", "Marcus is right". Metric: `agree_opener_rate` (shipped).
-Lever: `_SHARED_CHARACTER_RULES` / `_REACTION_DIRECTIVE`.
+Historical source: `_SHARED_CHARACTER_RULES` / <code>&#95;REACTION&#95;DIRECTIVE</code>.
 - **Boilerplate** - specific lines recited near-verbatim across many weeks
 regardless of the dish: the Saturday "recipe now should be live in a few"
 line appeared in 23 of 25 weeks; the photography "cross section / three
@@ -185,13 +168,13 @@ detector (an n-gram of `--min-ngram` words or more, default 3, appearing in at
 least `--min-weeks` distinct weeks,
 classified into the `Boilerplate` AREA) - distinct from `repeated_phrases`'
 within-episode n-gram detector, which stays in `conversation_metrics.py`.
-Lever: `DAY_STAGE_DIRECTIONS` (`scripts/simulate_dialogue_week.py:134`) -
+Historical source: <code>DAY&#95;STAGE&#95;DIRECTIONS</code> (`scripts/simulate_dialogue_week.py:134`) -
 Saturday's one-line direction is what the model keeps reciting.
 - **Pitch vocabulary** - Ria's own recurring phrases: "stops the scroll" in
 16 of 25 weeks, "people need to see" close behind. Metric: `pitch_vocab_rate`
 (shipped in `conversation_metrics.py`) plus the same cross-week hot-phrase
-detector, classified into the `Pitch vocabulary` AREA. Lever:
-`CHARACTER_DAY_GOALS` (`scripts/simulate_dialogue_week.py:78`) - Ria's
+detector, classified into the `Pitch vocabulary` AREA. Historical source:
+<code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) (`scripts/simulate_dialogue_week.py:78`) - Ria's
 per-day goal text is what teaches her the phrase.
 - **Brand reinforcement** - the pan-case mechanism justification the shared
 rules force reads as marketing copy dropped into a group chat, even though
@@ -203,9 +186,9 @@ average week. The forced feel comes from the mechanism-justification
 language the Monday pan-first rules demand, not from the noun itself.
 Metric: `brand_term_rate` in `conversation_metrics.py` (`BRAND_TERM_PATTERNS`,
 `AREA_METRICS["Brand reinforcement"]`); `conversation_heatmap.py` reports it as
-an area and in the structure-rates-by-day table. Lever: the Monday-specific rules in
-`scripts/simulate_dialogue_week.py` - `CHARACTER_DAY_GOALS`'s `monday`
-entries (`scripts/simulate_dialogue_week.py:79-86`), `DAY_STAGE_DIRECTIONS`'s
+an area and in the structure-rates-by-day table. Historical source: the retired Monday-specific rules in
+`scripts/simulate_dialogue_week.py` - <code>CHARACTER&#95;DAY&#95;GOALS</code> (retired)'s `monday`
+entries (`scripts/simulate_dialogue_week.py:79-86`), <code>DAY&#95;STAGE&#95;DIRECTIONS</code> (retired)'s
 `monday` entry (`scripts/simulate_dialogue_week.py:135`), and the pan-first
 / mechanism clauses inside `_SHARED_CHARACTER_RULES`'s "THE MUFFIN PAN IS
 THE POINT" block (`scripts/simulate_dialogue_week.py:386-400`).
@@ -375,8 +358,7 @@ is no absolute number for a later run to move away from. Erik, 2026-09-19:
 enough numbers to find some sort of average. We make one change and then
 see where that average moves."*
 
-`bench` runs a single arm N times through the same production call shape
-`ab` uses, and reports, per run and aggregated:
+`bench` runs a single arm N times through the same authored-scene API path `ab` uses. Both lab commands may add frozen prior lines, recipe facts, and recovery accounting that the production cron does not pass, and reports, per run and aggregated:
 
 - every deterministic metric from `scripts/conversation_metrics.py` as
 mean / sample stdev / standard error / min / max;
@@ -413,17 +395,7 @@ For Wednesday, the generation call also receives that episode stage's
 the Wednesday cron does. Friday receives Wednesday's `photography_data`
 when it is a dict and no image paths, as the Friday cron does. The bench
 freezes these raw inputs before run one, gives each run fresh copies, and
-retains them and their provenance in the report for audit. The recorded
-effective photo payload is descriptive output, not an evaluator or generator
-fingerprint: comparison re-renders both raw snapshots through the current
-`_build_dynamic_arc` and `_build_photography_scene_direction` helpers and
-compares those prompt strings plus Wednesday's effective turn floor. Image
-paths are attachment-only and are not part of textual comparison. Thus unused
-metadata and path changes remain comparable when rendered prompts and turn
-floor are unchanged; changes that affect those actual inputs are rejected
-before generation. Absent and present-but-empty values remain comparable when
-they render identically. Older results without photo fields remain usable
-when the current effective photo inputs are empty. Manual `--recipe-context`
+retains them and their provenance in the report for audit. The effective photo payload is the exact JSON string inserted into the authored prompt. Comparison rejects any byte-changing context difference, including key-order or audit-metadata changes, before generation. Image paths remain attachment-only and are not part of textual comparison. Absent and present-but-empty contexts are comparable because neither is inserted into the prompt. Older results without photo fields remain usable only when the current authored photo context is also empty. Manual `--recipe-context`
 benches continue to run without photo context.
 
 With `--recipe-context` the stage is judged in isolation, which is cheaper
@@ -443,28 +415,9 @@ somewhat smaller than the line count suggests.
 
 ### What the caps actually guarantee
 
-The paid call caps have different guarantees. `--max-calls` uses a
-structural reservation before each A/B generation arm: four requests per
-turn for the initial generation, CoT retry, fault rewrite, and rewrite CoT
-retry. Testbed/sweep defaults reserve that amount for both arms plus two
-pairwise judge requests. `bench` reserves the same four requests per turn
-and two requests for its production judge, which may retry once. Reports
-still record observed calls, not reservations. Dry runs reserve and record
-zero calls.
+The paid call caps have different guarantees. `--max-calls` reserves three authored-scene attempts for each arm, and each attempt includes the router.s bounded empty-response retries. Testbed and sweep modes add both position-swapped judge orientations with their JSON retry allowances. Reports record observed calls, not reservations. Dry runs reserve and record zero calls.
 
-`--max-cost` reads the billed OpenRouter cost of every call so far and,
-before each call, reserves that call's worst case (prompt bytes plus the
-full output ceiling at the model's published price); see
-`_installed_budget_guard`.
-
-Four, not two, and the difference is the whole point of the guard: one
-turn can cost the initial `generate_response`, `_guard_cot_leak`'s retry
-on it, the fault rewrite (repetition / saturated shape / word budget), and
-`_guard_cot_leak`'s retry on *that*. A first attempt at this reserved two
-and called it a worst case, which meant an arm admitted under
-`--max-calls 20` could still spend 40. If you change `generate_turn`'s
-retry structure, change `_MAX_CALLS_PER_TURN` with it. What gets *recorded* afterwards is the actual count, so
-`calls_used` reports spending, not reservations.
+`--max-cost` installs the router pre-call guard for every authored-scene and judge request. It reserves each request.s worst case from prompt bytes, output ceiling, and published model price before allowing the call. See `_installed_budget_guard`.
 
 For unguarded runs, `--max-cost` is weaker and honestly so: it is checked
 between units, so a single arm can carry the router-estimated total past
@@ -504,15 +457,7 @@ decision rule, then a live week.
 
 ## Cost budget
 
-`ab --runs` has no default - pick N per experiment. At N=5 pairs (a common
-choice, not a default): roughly 80 Haiku 4.5 turns (dialogue generation for
-5 pairs x 2 variants x ~8 turns/day x however many days are in scope) plus
-10 judge calls (5 pairs x 2 judge orders for the position swap). Every
-`ab` mode derives its default call cap from N by summing one worst-case
-reservation per judged pair: the control arm plus the variant arm (each
-reflecting its own turn count and stop check) plus both judge orientations
-with their retries, times panel size and runs (#7732; single-concept runs
-used a flat 120 until 2026-09-30, below one open-ended arm). `bench`
+`ab --runs` has no default - pick N per experiment. At N=5 pairs (a common choice, not a default), each pair reserves two authored-scene arms. Each arm permits three parse attempts and each model-router call permits its bounded empty-response retries; the pair also reserves both position-swapped judge orientations and their parse retries. Every `ab` mode derives its default call cap from that structural ceiling times panel size and runs. `bench`
 derives its own (see its `--max-calls` help).
 
 **Amended 2026-09-19 (#7314).** The 120 figure was written when N=5 was
@@ -568,11 +513,9 @@ exact flag. Every call bills through OpenRouter (#8343), so the cost is
 OpenRouter's own `usage.cost` for dialogue and judge calls alike, not an
 estimate from a local price table.
 
-## Lever catalog
+## Historical lever catalog (retired per-speaker architecture)
 
-Twelve candidate levers, one per experiment - never stack two (see "Rules"
-below). Each names its target area (see "Areas" above) and the movement it
-predicts.
+These twelve candidates are preserved as experiment provenance and must not be passed to the authored-only lab. A current study must follow the authored-scene rules above and use `TICKS_RANGE` or an explicitly implemented whole-scene lever.
 
 1. **Sentence-length variation rule** - target: Structure. Predicted:
 short-line rate up, length stdev up.
@@ -603,7 +546,7 @@ day" per-character goal** - target: short-line rate, question rate.
 target: Brand reinforcement and Structure. The "THE MUFFIN PAN IS THE
 POINT" block in `_SHARED_CHARACTER_RULES`
 (`scripts/simulate_dialogue_week.py:386-400`) and Monday's
-`CHARACTER_DAY_GOALS` / `DAY_STAGE_DIRECTIONS` entries are what push
+<code>CHARACTER&#95;DAY&#95;GOALS</code> (retired) / `DAY_STAGE_DIRECTIONS` entries are what push
 `brand_term_rate` to 32% on Mondays against 7-12% other days (see "Areas"
 above). Predicted: `brand_term_rate` down, dash-clause rate down (the
 mechanism-justification clause is itself a claim-dash-mechanism sentence

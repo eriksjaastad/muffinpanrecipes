@@ -25,9 +25,7 @@ not a sandbox: arbitrary callbacks cannot be proven offline, so provider calls
 are reported as unverified. For each arm and week:
 - a fresh temporary simulator character root is used, so a control-week write
   cannot leak into the next week; the treatment arm has a separate
-  harness-owned memory store. The simulator prompt cache is cleared before every
-  week, and the original character root, prompt cache and scene directions are
-  restored even if a fake week raises;
+  harness-owned memory store. The original simulator character root is restored even if a fake week raises;
 - every turn gets a stable source ID from experiment, arm, ISO week, day, turn
   index, speaker and exact text; speakers outside the fixed roster are rejected;
 - the treatment arm writes one slot per character per week. The harness
@@ -252,8 +250,8 @@ def execute_fake_chain(
         raise ValueError("each week must contain the fixed control and memory arms")
     if adapters.kind != "fake" or adapters.provider_calls_allowed is not False:
         raise ValueError("only explicitly marked zero-provider fake adapters are supported")
-    if not hasattr(simulator_state, "CHARACTERS_DIR") or not hasattr(simulator_state, "_system_prompt_cache") or not hasattr(simulator_state, "DAY_STAGE_DIRECTIONS"):
-        raise ValueError("simulator state lacks required isolation and restoration surfaces")
+    if not hasattr(simulator_state, "CHARACTERS_DIR"):
+        raise ValueError("simulator state lacks the character-root isolation surface")
 
     output: dict[str, Any] = {
         "experiment_id": plan["experiment_id"],
@@ -262,8 +260,6 @@ def execute_fake_chain(
         "memory_delivery": "read_back_records_passed_to_injected_callback; model_prompt_visibility_unverified",
     }
     original_characters_dir = simulator_state.CHARACTERS_DIR
-    original_cache = dict(simulator_state._system_prompt_cache)
-    original_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
 
     def new_isolated_root(prefix: str) -> Path:
         root = Path(tempfile.mkdtemp(prefix=prefix))
@@ -278,7 +274,6 @@ def execute_fake_chain(
             # treatment arm has a distinct harness-owned memory store.
             root = new_isolated_root(f"mpr-memory-{arm}-{week['week']}-")
             simulator_state.CHARACTERS_DIR = root
-            simulator_state._system_prompt_cache.clear()
             # Pass only the immediately preceding week's memory
             prior_weeks = [plan["weeks"][week_index - 1]["week"]] if arm == ARMS[1] and week_index > 0 else []
             prior_memory_records = (
@@ -292,14 +287,9 @@ def execute_fake_chain(
             }
             prior_memory_records_snapshot = copy.deepcopy(prior_memory_records)
             prior_memory_records_for_callback = copy.deepcopy(prior_memory_records)
-            week_directions = dict(simulator_state.DAY_STAGE_DIRECTIONS)
-            # Defensively copy the frozen week before invoking the adapter
+            # Defensively copy the frozen week before invoking the adapter.
             week_copy = copy.deepcopy(week)
-            try:
-                result = adapters.simulate_week(week_copy, arm, root, prior_memory_records_for_callback)
-            finally:
-                simulator_state.DAY_STAGE_DIRECTIONS.clear()
-                simulator_state.DAY_STAGE_DIRECTIONS.update(week_directions)
+            result = adapters.simulate_week(week_copy, arm, root, prior_memory_records_for_callback)
             turns = result.get("turns")
             if not isinstance(turns, list):
                 raise ValueError(f"{week['week']}: fake simulation must return a turns list")
@@ -406,10 +396,6 @@ def execute_fake_chain(
     finally:
         primary_error = sys.exc_info()[1]
         simulator_state.CHARACTERS_DIR = original_characters_dir
-        simulator_state._system_prompt_cache.clear()
-        simulator_state._system_prompt_cache.update(original_cache)
-        simulator_state.DAY_STAGE_DIRECTIONS.clear()
-        simulator_state.DAY_STAGE_DIRECTIONS.update(original_directions)
         cleanup_errors = []
         for root in isolated_roots:
             try:

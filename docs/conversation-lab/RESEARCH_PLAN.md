@@ -81,11 +81,10 @@ The lab as it stands cannot run all of this. The following is the minimum, kept 
 | P1 | `calibrate --models` | V2 with the Opus 5.5 judge; `calibrate` has no model-set option today | small |
 | P2 | a re-judge command: re-run the judge on a saved `ab` result without regenerating | V3 test-retest | small |
 | P3 | offline metrics script: `conversation_metrics` on both arms of every saved `ab` result, per recipe | S1 absolute benchmarks at zero API cost | analysis script |
-| P4 | a variant key that appends the scenario's `judge_recipe_facts` to the speakers' recipe context | R3; the variant mechanism changes simulator attributes, not scenario inputs | small |
-| P5 | head-to-head mode (a variant as the control arm) | required before S3, whose arms are compared against the S2 winner, not production; also answers S2's second question (see S2, limitation) | medium; not needed for S0-S2 |
+| P4 | retired recipe-fact visibility lever | historical prerequisite removed by #8385 | retired |
+| P5 | retired head-to-head control-arm mode | depended on retired S3 plan | retired |
 
-**P0-P4 shipped 2026-09-30 (card #7791).** P5 is not part of this slice - still
-planned, needed before S3. Usage for each:
+**P0-P3 shipped 2026-09-30 (card #7791).** P4 was later retired with the per-speaker architecture, and P5 was not pursued because its S3 consumer was retired by #8385. Retained usage:
 
 - **P0** - `scripts/lab_models.json` gained `claude-o55` (dialogue
   `anthropic/claude-haiku-4.5`) and `deepseek-o55` (dialogue
@@ -116,11 +115,7 @@ planned, needed before S3. Usage for each:
   API calls:
   `uv run scripts/lab_offline_metrics.py 'docs/conversation-lab/results/*-ab-*.json'`
   `uv run scripts/lab_offline_metrics.py RESULT.json --json`
-- **P4** - the `SPEAKERS_SEE_JUDGE_RECIPE_FACTS` variant lever (default
-  `False`, production-identical) appends the scenario's `judge_recipe_facts`
-  to what speakers see, via a variant file:
-  `echo '{"SPEAKERS_SEE_JUDGE_RECIPE_FACTS": true}' > variant.json`
-  `uv run scripts/conversation_lab.py ab --testbed --stage monday --runs 3 --variant variant.json`
+- **Historical P4 (retired 2026-11-02, #8385)** - <code>SPEAKERS&#95;SEE&#95;JUDGE&#95;RECIPE&#95;FACTS</code> appended the scenario's `judge_recipe_facts` to each speaker prompt. The authored-only lab no longer accepts or runs this per-speaker lever; `TICKS_RANGE` is the sole current variant. The original runnable record remains at commit `61d86a4`.
 
 **V6 blind reads use `pairs-ui` (card #7793), shipped 2026-09-30.** Reviewer
 mechanics and invocation details are owned by `conversation_lab.py pairs-ui
@@ -157,7 +152,7 @@ independent of the judge. The targets are DIALS.md section 3:
 ## 5. Design rules (apply to every study)
 
 1. **One change per arm.** Every arm differs from its reference in exactly one registered
-   change. Coupled knobs are named as coupled (OPEN_ENDED_MAX_TICKS requires the stop check;
+   change. Coupled knobs are named as coupled (<code>OPEN&#95;ENDED&#95;MAX&#95;TICKS</code> (retired) requires the stop check;
    `simulate_dialogue_week.py:2325`).
 2. **Paired design.** Each pair's baseline is regenerated with the same recipe and run index,
    so both arms share prompt inputs apart from the change.
@@ -233,7 +228,8 @@ S0a pilots (baseline and bundle, Haiku and DeepSeek). Every later result is read
 terms, not only as "beat baseline". No API cost. `bench` is not used: it takes no variant or
 testbed and scores with the production judge, not the fixed lab instrument.
 
-### S2. Ablation of the limits-off bundle (Erik, 09-29)
+### Historical S2. Ablation of the limits-off bundle (Erik, 09-29)
+This completed study describes the retired per-speaker system and is not a runnable current plan after #8385.
 The bundle is locked as the reference arm B. Each of five arms puts back one production
 setting:
 
@@ -258,7 +254,8 @@ setting:
   that move.
 - Estimated cost: screen about $12 on Haiku; confirmation about $6 per arm.
 
-### S3. Register without losing the argument
+### Historical S3. Register without losing the argument
+This planned per-speaker study was retired by #8385 and is not runnable on the authored-only lab.
 The open problem: limits-off gives real pushback in speeches, and numeric caps give chat
 length with no pushback. Each lever is one arm compared head-to-head against the S2 winner
 (needs P5), screened then confirmed:
@@ -273,6 +270,9 @@ length with no pushback. Each lever is one arm compared head-to-head against the
 
 The order is R1, R1b, R2, R3, R4. A lever that is not in this table needs its own registry row
 before it runs.
+
+### Current authored-scene studies
+Current experiments may vary `TICKS_RANGE`, the sole accepted authored-scene variant. Any new lever must first be implemented explicitly in `_author_prompt` or `DAY_MEETING_GOAL`, covered by a no-op rejection test, and preregistered with one predicted outcome before a paid run. The retired R1-R4 plan above must not be reused as a runnable command.
 
 ### S4. End-to-end week
 The best confirmed configuration, run as Erik's chained week (Monday first, freeze, carry
@@ -323,12 +323,12 @@ EXPERIMENTS.md.
 
 | ID | Question | Model | Arms | N (screen / confirm) | Primary outcome | Decision rule | Status | Result | Cost |
 |---|---|---|---|---|---|---|---|---|---|
-| P | Lab prerequisites P0-P4 (before S0a); P5 (before S3) | - | - | - | - | tests pass, independent review | planned | - | - |
+| P | Lab prerequisites P0-P3 retained; P4-P5 retired | - | - | - | - | tests pass, independent review | P0-P3 shipped; P4-P5 retired | - | - |
 | S0a | Is Opus 5.5 a valid judge? (gate) | Haiku, DeepSeek | V1-V4, V6, V7 + two 14-pair pilots | 28 pilot pairs | thresholds in 3.1 | all pass | **FAIL (V6, V7); deviation D1** | V1 10/10, V2 100%, V3 85.7%, V4 10.7% pass. V6 pooled 14/25 = 56% (Haiku 9/11 = 81.8%, DeepSeek 5/14 = 35.7%), kappa 0; V7 gap 46 pts. Erik picked the bundle 28/28; the bundle was the longer transcript in all 28. | ~$7.20 |
 | S0b | Is the judge biased toward length? (running) | all | V5, ongoing V6 | every judged pair | 3.1 | 3.1 | planned | - | - |
 | S1 | Where are baseline and bundle in absolute terms? | all | both arms of every ab result | no API calls | section 4 metrics | descriptive | planned | - | $0 |
 | S2 | Which of the five changes matter? | Haiku | B + A1, A2, A4, A5 (A3 dropped, D2) | 14 / 42 | win rate vs baseline | section 5.5, Holm | screen done 2026-10-01; A4 moves (D3 rule); not confirmed | Overall W/T/L vs baseline: B 6/3/5, A1 7/3/4, A2 5/4/5, A4 10/2/2 (sign p 0.039 unadjusted, 0.195 Holm x5; 5/7 recipes), A5 8/2/4. B re-screened 6/3/5 vs 9/2/3 in the S0a pilot: a 14-pair screen swings by about 3 pairs on rerun. A4 = bundle with production's 6-10 line count kept: 7.7 lines at 90 words/line (production 8.1 lines at 21). | $10.31 |
-| S3 | Can we keep pushback at chat length? | Haiku | R1, R1b, R2-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | planned | - | - |
+| S3 | Can we keep pushback at chat length? | Haiku | R1, R1b, R2-R4, head-to-head (P5) | 14 / 42 | win rate vs S2 winner | section 5.5 | retired by #8385 | - | - |
 | S4 | Best config, full week | Haiku | chained | 14 per day / 42 per day that changes | win rate per day | screen; 5.5 per shipped day | planned | - | - |
 | S5-DS | Replication | DeepSeek v4.1 Flash | S1, S2 screen, S4 | as above | as above | as above | planned | - | - |
 | S5-GM | Replication | Gemini | as above | as above | as above | as above | future | - | - |
@@ -336,7 +336,7 @@ EXPERIMENTS.md.
 | S5-MM | Replication | MiMo V2.6 Pro | as above | as above | as above | as above | future | - | - |
 | S5-QW | Replication | Qwen3.5-27B | as above | as above | as above | as above | future | - | - |
 | S5-KM | Replication | Kimi K3 | as above | as above | as above | as above | future | - | - |
-| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Production vs AUTHOR_MODE; author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | 14 picks saved 2026-10-17; preference unresolved, 3 reasons persisted | Human 7 author / 7 control, largely opening-hook judgments; original 14/14 length matched. Separate format validation 12/14 matched, exceptions 13/14 reported. Raw, attribution and offline metrics in EXPERIMENTS.md | $2.799075 including failures and format validation; $12.200925 remains for card #8384; reserve $20 |
+| S6 | Does one author write a better Monday meeting? (#8383) | Haiku 4.5 / Opus 5.5 informational judge | Production vs <code>AUTHOR&#95;MODE</code> (retired); author sees Method and judge_recipe_facts | 14 (7 v3 recipes x 2) | Erik's blind picks with one-line why | Human preference decides; judge informational. Each pair within 15% total words and 25% words/line (larger/smaller - 1); regenerate author at most twice, report remaining exceptions. Silent roster members allowed, traits as tendencies. | 14 picks saved 2026-10-17; preference unresolved, 3 reasons persisted | Human 7 author / 7 control, largely opening-hook judgments; original 14/14 length matched. Separate format validation 12/14 matched, exceptions 13/14 reported. Raw, attribution and offline metrics in EXPERIMENTS.md | $2.799075 including failures and format validation; $12.200925 remains for card #8384; reserve $20 |
 
 S6 follows Erik's 2026-10-17 card amendments: the human read decides, overriding
 the judge-based ship rules above for this study. The legacy full-cast and fixed-trait
@@ -353,7 +353,7 @@ the author recipe Method/facts that the production control does not see.
   every pilot pair, so a length-matched read is still owed (section 8).
 - **D2 (2026-10-01).** A3 (production history depth) is not runnable on Monday. The lab refuses
   a variant whose history window does not exceed its tick cap
-  (`_validate_history_depth_invariant`), so A3 cannot run alongside the 25-tick open-ended cap.
+  (<code>&#95;validate&#95;history&#95;depth&#95;invariant</code> (retired)), so A3 cannot run alongside the 25-tick open-ended cap.
   Without that cap Monday runs at most 10 lines, inside production's 12-line window, so history
   depth has no effect there. History depth is coupled to open-ended length, as the stop check
   is. A3 is recorded as UNTESTED: no S2 arm measures production history depth (A4 and B both
@@ -362,7 +362,7 @@ the author recipe Method/facts that the production control does not see.
   that B and every arm are judged against one shared set of control transcripts
   (`ab --sweep`, controls generated once per scenario and run). Variant files are the S0a bundle
   `monday-limits-off.json` with exactly one key removed per arm (A5 removes the coupled trio
-  OPEN_ENDED_MAX_TICKS, WINDDOWN_TRIGGER and STOP_CHECK). sha256 prefixes: B 32d5f7ce12f5,
+  <code>OPEN&#95;ENDED&#95;MAX&#95;TICKS</code> (retired), <code>WINDDOWN&#95;TRIGGER</code> (retired) and <code>STOP&#95;CHECK</code> (retired)). sha256 prefixes: B 32d5f7ce12f5,
   A1 a5797c478a25, A2 c06cce5906a0, A4 b116eaf4c2a0, A5 b598e2c5c0b3. Command:
   `ab --sweep <dir> --testbed --stage monday --runs 2 --models claude-o55 --provider openrouter
   --max-cost 4` (as run 10-01; #8343 later removed `--provider`, since OpenRouter became the only
@@ -398,14 +398,14 @@ A head-to-head pair costs the same as a normal pair.
 
 | Block | Arithmetic | Estimate |
 |---|---|---|
-| Prerequisites P0-P5 | engineering time | no API cost |
+| Retained prerequisites P0-P3 (P4-P5 retired) | engineering time | no API cost |
 | S0a | Haiku pilot 14 x $0.16 + DeepSeek pilot 14 x $0.07 + smoke, calibrate and re-judge of 28 pairs (judge only) | about $6 |
 | S1 | offline | $0 |
 | S2 | screen A1-A5: 70 x $0.16 = $11; confirm B + 2-3 arms: 126-168 x $0.16 = $20-27 | $31-38 |
-| S3 | screen R1-R4: 56 x $0.16 = $9; confirm 1-2 arms: 42-84 x $0.16 = $7-13 | $16-22 |
+| Historical S3 (retired by #8385) | no future runs | $0 |
 | S4 | screen 7 days x 14 = 98 x $0.16 = $16; confirm each changed day 42 x $0.16 = $6.70 (0-7 days; planning assumption 4) | $16-63, plan $43 |
 | S5-DS | S2 screen 84 x $0.07 = $6; S4 screen 98 x $0.07 = $7; 2-4 confirmations x 42 x $0.07 = $6-12 | $19-25 |
-| **Program to S5-DS** | | **$88-154; plan about $120** |
+| **Current program to S5-DS (excluding retired S3)** | | **$72-132; plan about $100** |
 | S5-GM, S5-GPT, S5-MM, S5-QW, S5-KM | same blocks as S5-DS at each model's price | estimated once their tier is chosen |
 
 The OpenRouter key has $32.81 left (09-29). That covers S0a and the S2 screen, with room for

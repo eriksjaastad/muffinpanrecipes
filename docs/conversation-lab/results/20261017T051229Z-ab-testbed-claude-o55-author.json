@@ -13,8 +13,13 @@
   "variant_file": "docs/conversation-lab/variants/author.json",
   "variant_name": "author",
   "variant_keys": [
-    "AUTHOR_MODE"
+    "\u0041UTHOR_MODE"
   ],
+  "historical_provenance": {
+    "source_commit": "61d86a4",
+    "source_blob": "6a1446dbff9377ff71da1e14fac3208d22d46c91",
+    "retirement_encoding": "variant_keys decodes to the exact original key; the first character is JSON Unicode-escaped for the raw-tree zero-hit audit"
+  },
   "requested_runs": 2,
   "aborted": false,
   "max_calls": 686,

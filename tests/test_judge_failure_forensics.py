@@ -140,13 +140,12 @@ def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatc
     only the model call and the judge are stubbed, so every hop is real."""
     import scripts.simulate_dialogue_week as sdw
 
-    monkeypatch.setattr(sdw, "AUTHOR_MODE", False)  # per-line prompts; the author's retry line: test_author_mode
     prompts: list[str] = []
     seen_by_attempt: list[int] = []
 
     def _model(prompt, **_kw):
         prompts.append(prompt)
-        return f"Plain line number {len(prompts)} about the cups."
+        return '\n'.join(['Margaret: "Plain line about the cups."'] * 6)
 
     def _judge(concept, stage, dialogue, episode_, **kw):
         seen_by_attempt.append(len(prompts))
@@ -158,8 +157,6 @@ def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatc
         return True, "PASS"
 
     monkeypatch.setattr(sdw, "generate_response", _model)
-    monkeypatch.setattr(sdw, "build_system_prompt", lambda persona: "SYS")
-    monkeypatch.setattr(sdw, "_guard_cot_leak", lambda msg, **_kw: msg)
     with patch.object(cron_routes, "_judge_dialogue", _judge), \
          patch.object(cron_routes, "_score_dialogue_qa", lambda *a, **kw: None):
         cron_routes._generate_and_judge_dialogue(
@@ -168,7 +165,7 @@ def test_a_retry_is_told_why_the_judge_rejected_the_attempt_before_it(monkeypatc
 
     first, second = prompts[:seen_by_attempt[0]], prompts[seen_by_attempt[0]:]
     assert first and second
-    assert not any("Writer's note" in p for p in first)
-    for p in second:
-        assert "Everyone agrees at once." in p
-        assert "weakest: natural_progression" in p
+    assert not any("earlier draft of today's conversation was rejected" in p.lower() for p in first)
+    for prompt in second:
+        assert "Everyone agrees at once." in prompt
+        assert "weakest: natural_progression" in prompt
