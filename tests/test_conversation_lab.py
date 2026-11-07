@@ -519,7 +519,7 @@ def test_ab_tolerates_and_appends_to_an_existing_experiments_file(tmp_path, monk
 # ab: model resolution fails loud without --dry-run
 # ---------------------------------------------------------------------------
 
-def test_ab_without_dry_run_fails_loud_when_openrouter_key_unset(tmp_path, monkeypatch):
+def test_ab_on_an_openrouter_set_fails_loud_when_openrouter_key_unset(tmp_path, monkeypatch):
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
     variant_path = _write_variant(tmp_path, {"_SHARED_CHARACTER_RULES": "VARIANT_RULES"})
 
@@ -528,7 +528,7 @@ def test_ab_without_dry_run_fails_loud_when_openrouter_key_unset(tmp_path, monke
             "ab",
             "--concept", "Test Muffins", "--stage", "monday", "--runs", "1",
             "--variant", str(variant_path), "--recipe-context", "anchor",
-            "--results-dir", str(tmp_path / "results"),
+            "--results-dir", str(tmp_path / "results"), "--models", "deepseek",
         ])
 
 # ---------------------------------------------------------------------------

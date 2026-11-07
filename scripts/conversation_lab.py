@@ -170,10 +170,15 @@ Five subcommands:
       by scenario then day, in week order; it refuses a day that is not
       after the last frozen day.
 
-Every paid command routes through OpenRouter with the model set named by
---models (scripts/lab_models.json; its default set is production's models).
-A missing OPENROUTER_API_KEY exits non-zero with a `doppler run --` hint
-unless --dry-run is passed.
+Every paid command uses the model set named by --models
+(scripts/lab_models.json; its default set is production's models). A set
+marked "via": "claude-cli" - the default and the other Claude-only sets -
+runs every call through `claude -p` on the Claude subscription
+(scripts/lab_claude_cli.py, #8934): no OpenRouter key, no OpenRouter spend,
+and --max-calls still applies. Any other set routes through OpenRouter, and
+a missing OPENROUTER_API_KEY exits non-zero with a `doppler run --` hint
+unless --dry-run is passed; `--models claude-openrouter` is the Claude set
+on OpenRouter.
 
 Cost control, two independent caps checked before every paid unit (a
 control/variant generation, or a judge call), whichever hits first:
@@ -255,6 +260,7 @@ from statistics import mean, median, stdev
 from typing import Any
 
 import scripts.conversation_heatmap as conversation_heatmap
+import scripts.lab_claude_cli as lab_claude_cli
 import scripts.conversation_metrics as conversation_metrics
 import scripts.simulate_dialogue_week as simulate_module
 from backend.admin.cron_routes import (
@@ -302,11 +308,17 @@ LAB_MODELS_PATH = ROOT / "scripts" / "lab_models.json"
 _LAB_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+$")
 
 
+_LAB_VIAS = ("openrouter", "claude-cli")
+
+
 @dataclass(frozen=True)
 class LabModelSet:
     name: str
     dialogue: str  # bare OpenRouter id, e.g. "anthropic/claude-haiku-4.5"
     judge: str
+    # "claude-cli": both calls run on the Claude subscription through
+    # scripts/lab_claude_cli.py at $0 OpenRouter spend (#8934).
+    via: str = "openrouter"
 
 
 @dataclass(frozen=True)
@@ -355,14 +367,23 @@ def _load_lab_models_file(path: Path = LAB_MODELS_PATH) -> LabModelsFile:
         raise SystemExit(f"conversation_lab: {path} 'sets' must be a non-empty object")
     sets: dict[str, LabModelSet] = {}
     for set_name, entry in sets_raw.items():
-        if not isinstance(entry, dict) or set(entry) != {"dialogue", "judge"}:
+        if not isinstance(entry, dict) or not {"dialogue", "judge"} <= set(entry) <= {"dialogue", "judge", "via"}:
             raise SystemExit(
                 f"conversation_lab: {path} set {set_name!r} must be an object with exactly "
-                f"'dialogue' and 'judge' keys, got {entry!r}"
+                f"'dialogue' and 'judge' keys (plus an optional 'via'), got {entry!r}"
             )
         dialogue = _validate_lab_model_id(path, set_name, "dialogue", entry["dialogue"])
         judge = _validate_lab_model_id(path, set_name, "judge", entry["judge"])
-        sets[set_name] = LabModelSet(name=set_name, dialogue=dialogue, judge=judge)
+        via = entry.get("via", "openrouter")
+        if via not in _LAB_VIAS:
+            raise SystemExit(f"conversation_lab: {path} set {set_name!r} 'via' must be one of {_LAB_VIAS}, got {via!r}")
+        if via == "claude-cli":
+            for model_id in (dialogue, judge):
+                try:
+                    lab_claude_cli.cli_model(model_id)
+                except RuntimeError as exc:
+                    raise SystemExit(f"conversation_lab: {path} set {set_name!r}: {exc}") from exc
+        sets[set_name] = LabModelSet(name=set_name, dialogue=dialogue, judge=judge, via=via)
     if default not in sets:
         raise SystemExit(f"conversation_lab: {path} 'default' {default!r} is not one of 'sets': {sorted(sets)}")
     return LabModelsFile(default=default, sets=sets)
@@ -765,9 +786,6 @@ def _refuse_if_stop_check_conflicts_with_models(
     could not have caught it.
     """
     model_set = _resolve_lab_model_set(args)
-    if model_set.name == _LAB_MODELS.default:
-        return
-
     control_trigger = simulate_module.WINDDOWN_TRIGGER
     control_provider = simulate_module.STOP_CHECK.get("provider")
 
@@ -783,6 +801,22 @@ def _refuse_if_stop_check_conflicts_with_models(
         if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
         else control_provider
     )
+
+    if model_set.via == "claude-cli":
+        # On `claude -p` the haiku stop check runs on the subscription with the
+        # rest of the set; Jev exists only on OpenRouter (#8934).
+        uses_jev = (control_trigger == "check" and control_provider == "jev") or (
+            variant_trigger == "check" and variant_provider == "jev"
+        )
+        if uses_jev:
+            raise SystemExit(
+                f"conversation_lab: --models {model_set.name!r} runs on `claude -p`, and STOP_CHECK "
+                "provider='jev' only exists on OpenRouter. Use provider 'haiku', or pick an "
+                "OpenRouter set such as 'claude-openrouter'."
+            )
+        return
+    if model_set.name == _LAB_MODELS.default:
+        return
 
     control_conflict = control_trigger == "check" and control_provider == "haiku"
     variant_conflict = variant_trigger == "check" and variant_provider == "haiku"
@@ -1173,9 +1207,12 @@ def _openrouter_fields_for(
     provider_route is the dialogue model's OpenRouter route; a local dialogue
     model (#8344) never touches OpenRouter, so it has none (None)."""
     model_set = _resolve_lab_model_set(args)
-    route = None if _is_local_model(model_set.dialogue) else model_router.openrouter_provider_route(model_set.dialogue)
+    off_openrouter = _is_local_model(model_set.dialogue) or model_set.via == "claude-cli"
+    route = None if off_openrouter else model_router.openrouter_provider_route(model_set.dialogue)
     fields: dict[str, Any] = {"provider_route": route}
-    fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
+    fields["models"] = {
+        "set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge, "via": model_set.via,
+    }
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()
     if key_report is not None:
@@ -1826,11 +1863,9 @@ def _installed_budget_guard(budget: CallBudget, max_cost: float | None, baseline
                 # (openrouter_max_tokens), one call can overshoot the cap
                 # materially. Reserve its worst case instead of just
                 # checking the running total.
-                worst_case = (
-                    0.0 if provider == "local"
-                    else _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
-                )
-                if provider != 'local' and _OPENROUTER_MIN_BALANCE:
+                free = provider == "local" or lab_claude_cli.is_active()
+                worst_case = 0.0 if free else _openrouter_worst_case_call_cost(model or "", prompt_bytes or 0)
+                if not free and _OPENROUTER_MIN_BALANCE:
                     if _openrouter_fetch_account_balance() - worst_case < _OPENROUTER_MIN_BALANCE:
                         raise LabBudgetAbort("OpenRouter balance would fall below --min-balance")
                 # An unreadable total (e.g. an earlier OpenRouter entry with
@@ -2597,14 +2632,16 @@ def _resolve_openrouter_models(dry_run: bool, model_set: "LabModelSet") -> tuple
     """
     if dry_run:
         return "template", "template", "template"
-    _require_openrouter_key()
+    if model_set.via != "claude-cli":
+        _require_openrouter_key()
     return "openai", _router_model_id(model_set.dialogue), _router_model_id(model_set.judge)
 
 
 def _resolve_openrouter_judge_model(dry_run: bool, model_set: "LabModelSet") -> str:
     if dry_run:
         return "template"
-    _require_openrouter_key()
+    if model_set.via != "claude-cli":
+        _require_openrouter_key()
     return _router_model_id(model_set.judge)
 
 
@@ -8294,6 +8331,10 @@ def main(argv: list[str] | None = None) -> None:
     _OPENROUTER_KEY_AFTER = None
 
     try:
+        if args.command in _PAID_COMMANDS and not args.dry_run and _resolve_lab_model_set(args).via == "claude-cli":
+            with lab_claude_cli.installed():
+                _dispatch_command(args)
+            return
         if args.command in _PAID_COMMANDS and not args.dry_run:
             _local_model_preflight(args)
             _openrouter_preflight(args)
