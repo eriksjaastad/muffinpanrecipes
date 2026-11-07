@@ -36,6 +36,7 @@ from backend.publishing.episode_renderer import (
 from backend.publishing.static_renderer import (
     render_home,
     render_placeholder_page,
+    render_privacy_page,
     render_recipes_index,
     render_sitemap,
 )
@@ -496,6 +497,7 @@ class StaticSiteBuilder:
         files: dict[str, str] = {
             "recipes.json": json.dumps({"recipes": recipes}, indent=2) + "\n",
             "index.html": render_home(recipes),
+            "privacy.html": render_privacy_page(),
             "recipes/index.html": render_recipes_index(recipes),
             "sitemap.xml": render_sitemap(recipes),
         }

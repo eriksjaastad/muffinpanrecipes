@@ -119,7 +119,7 @@ def test_week_off_note_not_in_sitemap():
 
     xml = render_sitemap([])
     assert "week-off" not in xml.lower()
-    assert xml.count("<url>") == 3  # home, /recipes, /this-week — unchanged by #7630
+    assert xml.count("<url>") == 4  # home, /recipes, /this-week, /privacy
 
 
 def test_rewritten_static_path_is_served_like_the_recipe_page() -> None:

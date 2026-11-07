@@ -25,7 +25,12 @@ from backend.publishing.episode_renderer import (
     _step_name,
     render_episode_page,
 )
-from backend.publishing.static_renderer import render_home, render_recipes_index
+from backend.publishing.static_renderer import (
+    render_home,
+    render_placeholder_page,
+    render_privacy_page,
+    render_recipes_index,
+)
 from backend.recipe_model import slugify
 
 
@@ -472,9 +477,52 @@ def test_sitemap_lists_catalog_recipes_and_site_roots() -> None:
     assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/this-week</loc>" in xml
+    assert "<loc>https://muffinpanrecipes.com/privacy</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/savory-bacon-biscuit-rounds</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/spinach-feta-egg-bites</loc>" in xml
-    assert xml.count("<url>") == 5  # 3 site roots + 2 recipes; slug-less entry skipped
+    assert xml.count("<url>") == 6  # 4 site roots + 2 recipes; slug-less entry skipped
+
+
+def test_stored_this_week_page_gets_privacy_footer_before_response() -> None:
+    legacy = '<html><footer><a href="/about">About</a> &middot; &copy; 2026</footer></html>'
+    with patch.object(episode_routes, "current_episode_id", return_value="2026-W45"), \
+         patch.object(episode_routes, "_load_page_for_reader", return_value=legacy):
+        response = asyncio.run(episode_routes.this_week_page())
+    rendered = bytes(response.body).decode()
+    assert 'href="/privacy"' in rendered
+    assert episode_routes._ensure_privacy_footer(rendered) == rendered
+
+
+def test_stored_recipe_page_gets_privacy_footer_before_response() -> None:
+    legacy = '<html><footer><a href="/about">About</a> &middot; &copy; 2026</footer></html>'
+    with patch.object(episode_routes.storage, "load_page", return_value=legacy):
+        response = asyncio.run(episode_routes.recipe_page("legacy-cup"))
+    assert 'href="/privacy"' in bytes(response.body).decode()
+
+
+def test_privacy_page_matches_collection_and_processor_code() -> None:
+    page = render_privacy_page()
+    assert "Google Analytics 4" in page
+    assert "cookies and similar identifiers" in page
+    assert "Vercel hosts the site" in page
+    assert "IP address" in page
+    assert "newsletter subscription endpoint" in page
+    assert "marks the record as unsubscribed but keeps the address until you ask us to remove it" in page
+    assert "hello@muffinpanrecipes.com" in page
+    assert page.count("gtag('config', 'G-05P73D3237')") == 1
+
+
+def test_every_rendered_public_footer_links_privacy() -> None:
+    pages = [
+        render_home([]),
+        render_recipes_index([]),
+        render_episode_page(_published_episode()),
+        render_placeholder_page("2026-W45"),
+        render_privacy_page(),
+    ]
+    for page in pages:
+        footer = page.split("<footer", 1)[1]
+        assert 'href="/privacy"' in footer
 
 
 def test_sitemap_lastmod_is_the_weeks_sunday() -> None:
@@ -489,14 +537,14 @@ def test_sitemap_falls_back_to_static_catalog_when_blob_empty() -> None:
     with patch.object(episode_routes.storage, "load_page", return_value=None):
         resp = asyncio.run(episode_routes.sitemap_xml())
     xml = bytes(resp.body).decode()
-    # Pin to the real static seed file: 2 site roots + one URL per seed recipe
+    # Pin to the real static seed file: 4 site roots + one URL per seed recipe
     static = json.loads(
         (episode_routes.Path(episode_routes.__file__).resolve().parents[2]
          / "src" / "recipes.json").read_text()
     )
     seed_count = len([r for r in static["recipes"] if r.get("slug")])
     assert seed_count >= 10  # guard: the seed file itself went missing/empty
-    assert xml.count("<url>") == 3 + seed_count  # /, /recipes, /this-week + seeds
+    assert xml.count("<url>") == 4 + seed_count  # /, /recipes, /this-week, /privacy + seeds
     assert "spinach-feta-egg-bites" in xml
 
 
@@ -542,7 +590,7 @@ def test_sitemap_empty_catalog_is_still_a_valid_roots_only_sitemap() -> None:
     """A well-formed empty catalog is not an error."""
     with patch.object(episode_routes.storage, "load_page", return_value='{"recipes": []}'):
         resp = asyncio.run(episode_routes.sitemap_xml())
-    assert bytes(resp.body).decode().count("<url>") == 3
+    assert bytes(resp.body).decode().count("<url>") == 4
 
 
 # ---------------------------------------------------------------------------
