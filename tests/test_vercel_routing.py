@@ -65,7 +65,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/assets/(.*)",
         "/robots\\.txt",
         "/about",
-        "/privacy",
+        "/privacy/?$",
         "/",
         "/(.*)",
     ]
@@ -277,7 +277,7 @@ def test_about_route_exists() -> None:
 
 def test_privacy_route_targets_public_app() -> None:
     routes = _routes()
-    privacy = next((route for route in routes if route.get("src") == "/privacy"), None)
+    privacy = next((route for route in routes if route.get("src") == "/privacy/?$"), None)
 
     assert privacy is not None, "/privacy route is missing from vercel.json"
     assert privacy["dest"] == "backend/admin/app.py"

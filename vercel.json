@@ -122,7 +122,7 @@
             "dest": "/src/about.html"
         },
         {
-            "src": "/privacy",
+            "src": "/privacy/?$",
             "dest": "backend/admin/app.py"
         },
         {
