@@ -19,7 +19,7 @@ from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from backend.publishing.analytics import GA4_TAG
-from backend.publishing.static_renderer import render_recipes_index, render_sitemap
+from backend.publishing.static_renderer import render_privacy_page, render_recipes_index, render_sitemap
 from backend.storage import PageReadError, storage
 from backend.utils.episode_integrity import current_episode_id, episode_page_is_due
 from backend.utils.logging import get_logger
@@ -70,6 +70,12 @@ def _ensure_privacy_footer(page_html: str) -> str:
 
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
+
+
+@router.get("/privacy")
+async def privacy_page():
+    """Serve the generated privacy disclosure through the public app."""
+    return HTMLResponse(content=render_privacy_page())
 
 
 @router.get("/this-week")

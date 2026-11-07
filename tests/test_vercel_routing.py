@@ -275,6 +275,14 @@ def test_about_route_exists() -> None:
     assert "check" not in about
 
 
+def test_privacy_route_targets_public_app() -> None:
+    routes = _routes()
+    privacy = next((route for route in routes if route.get("src") == "/privacy"), None)
+
+    assert privacy is not None, "/privacy route is missing from vercel.json"
+    assert privacy["dest"] == "backend/admin/app.py"
+
+
 def test_builds_array_is_unchanged() -> None:
     """#6684's routing change must not touch `builds` — see PR #90's root cause.
 
