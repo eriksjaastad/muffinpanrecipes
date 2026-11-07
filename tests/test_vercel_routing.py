@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # `{"handle": "filesystem"}` so a stale committed copy of the same path can
 # never shadow them (see test_lambda_only_reader_routes_precede_filesystem_handling).
 _LAMBDA_ONLY_READER_ROUTES = (
-    "/this-week/?$",
+    "/(this-week|privacy)/?$",
     "/recipes/?$",
     "/recipes\\.json",
     "/sitemap\\.xml",
@@ -53,8 +53,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/admin/(.*)",
         "/auth/(.*)",
         "/health",
-        "/privacy/?$",
-        "/this-week/?$",
+        "/(this-week|privacy)/?$",
         "/recipes/?$",
         "/recipes\\.json",
         "/sitemap\\.xml",
@@ -277,7 +276,7 @@ def test_about_route_exists() -> None:
 
 def test_privacy_route_targets_public_app() -> None:
     routes = _routes()
-    privacy = next((route for route in routes if route.get("src") == "/privacy/?$"), None)
+    privacy = next((route for route in routes if route.get("src") == "/(this-week|privacy)/?$"), None)
 
     assert privacy is not None, "/privacy route is missing from vercel.json"
     assert privacy["dest"] == "backend/admin/app.py"
