@@ -53,6 +53,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/admin/(.*)",
         "/auth/(.*)",
         "/health",
+        "/privacy/?$",
         "/this-week/?$",
         "/recipes/?$",
         "/recipes\\.json",
@@ -65,7 +66,6 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/assets/(.*)",
         "/robots\\.txt",
         "/about",
-        "/privacy/?$",
         "/",
         "/(.*)",
     ]

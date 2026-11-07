@@ -71,6 +71,10 @@
             "dest": "backend/admin/app.py"
         },
         {
+            "src": "/privacy/?$",
+            "dest": "backend/admin/app.py"
+        },
+        {
             "src": "/this-week/?$",
             "dest": "backend/admin/app.py"
         },
@@ -120,10 +124,6 @@
         {
             "src": "/about",
             "dest": "/src/about.html"
-        },
-        {
-            "src": "/privacy/?$",
-            "dest": "backend/admin/app.py"
         },
         {
             "src": "/",
