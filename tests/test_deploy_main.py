@@ -54,6 +54,11 @@ def test_deploy_sequence_health_precedes_production_deploy_and_proof(
     monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
     monkeypatch.setattr(
         deploy_main,
+        "_build_prebuilt",
+        lambda worktree, *, production: events.append(("build", worktree, production)),
+    )
+    monkeypatch.setattr(
+        deploy_main,
         "_deploy_preview",
         lambda worktree, sha: events.append(("deploy", worktree, sha)) or "https://preview.example",
     )
@@ -76,8 +81,10 @@ def test_deploy_sequence_health_precedes_production_deploy_and_proof(
     assert deploy_main.main([]) == 0
     assert events == [
         ("worktree", SHA),
+        ("build", tmp_path, False),
         ("deploy", tmp_path, SHA),
         ("health", tmp_path, "https://preview.example"),
+        ("build", tmp_path, True),
         ("production_deploy", tmp_path, SHA),
         ("proof", deploy_main.PRODUCTION_URL, SHA),
         ("health", tmp_path, None),
@@ -193,6 +200,7 @@ def test_preview_deploy_passes_origin_sha_as_gitsha_metadata(monkeypatch, tmp_pa
         "deploy",
         str(tmp_path),
         "--target=preview",
+        "--prebuilt",
         "--yes",
         "--meta",
         f"gitSha={SHA}",
@@ -210,6 +218,7 @@ def test_production_deploy_uses_same_worktree_and_sha(monkeypatch, tmp_path):
         "deploy",
         str(tmp_path),
         "--prod",
+        "--prebuilt",
         "--yes",
         "--meta",
         f"gitSha={SHA}",
@@ -364,6 +373,9 @@ def test_deploy_fails_without_production_sha_proof_and_no_success_receipt(
 
     monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
     monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
+    monkeypatch.setattr(
+        deploy_main, "_build_prebuilt", lambda _worktree, *, production: None
+    )
     monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
     monkeypatch.setattr(deploy_main, "_health_check", lambda _worktree, base_url=None: None)
     monkeypatch.setattr(deploy_main, "_deploy_production", lambda _worktree, _sha: None)
@@ -396,6 +408,9 @@ def test_unhealthy_new_production_stops_before_final_provenance(monkeypatch, tmp
 
     monkeypatch.setattr(deploy_main, "_fetch_origin_main", lambda: SHA)
     monkeypatch.setattr(deploy_main, "_detached_origin_main", fake_worktree)
+    monkeypatch.setattr(
+        deploy_main, "_build_prebuilt", lambda _worktree, *, production: None
+    )
     monkeypatch.setattr(deploy_main, "_deploy_preview", lambda _worktree, _sha: "https://preview.example")
     monkeypatch.setattr(deploy_main, "_deploy_production", lambda _worktree, _sha: None)
     monkeypatch.setattr(deploy_main, "_health_check", fake_health)
@@ -424,6 +439,7 @@ def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
             "deploy",
             str(tmp_path),
             "--prod",
+            "--prebuilt",
             "--yes",
             "--meta",
             f"gitSha={SHA}",
@@ -431,6 +447,31 @@ def test_vercel_commands_use_workspace_safe_wrapper(monkeypatch, tmp_path):
         "cwd": deploy_main.ROOT,
         "timeout": deploy_main.VERCEL_TIMEOUT_SECONDS,
     }
+
+
+def test_prebuilt_build_requires_privacy_artifact(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_vercel(command, *, cwd=deploy_main.ROOT):
+        calls.append((command, cwd))
+        output = cwd / ".vercel" / "output"
+        (output / "static").mkdir(parents=True, exist_ok=True)
+        (output / "config.json").write_text("{}", encoding="utf-8")
+        (output / "static" / "privacy").write_text("privacy", encoding="utf-8")
+
+    monkeypatch.setattr(deploy_main, "_vercel", fake_vercel)
+
+    deploy_main._build_prebuilt(tmp_path, production=False)
+    deploy_main._build_prebuilt(tmp_path, production=True)
+
+    assert calls == [(["build", "--yes"], tmp_path), (["build", "--yes", "--prod"], tmp_path)]
+
+
+def test_prebuilt_build_fails_closed_without_privacy_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(deploy_main, "_vercel", lambda command, *, cwd: None)
+
+    with pytest.raises(deploy_main.DeployError, match="missing config.json or static/privacy"):
+        deploy_main._build_prebuilt(tmp_path, production=False)
 
 
 def test_environment_project_binding_allows_absent_or_matching_and_rejects_conflicts(monkeypatch):
