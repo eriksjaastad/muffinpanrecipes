@@ -500,6 +500,14 @@ def test_stored_recipe_page_gets_privacy_footer_before_response() -> None:
     assert 'href="/privacy"' in bytes(response.body).decode()
 
 
+def test_privacy_route_returns_the_generated_page() -> None:
+    response = asyncio.run(episode_routes.privacy_page())
+    assert response.status_code == 200
+    rendered = bytes(response.body).decode()
+    assert '<link rel="canonical" href="https://muffinpanrecipes.com/privacy">' in rendered
+    assert rendered.count("gtag('config', 'G-05P73D3237')") == 1
+
+
 def test_privacy_page_matches_collection_and_processor_code() -> None:
     page = render_privacy_page()
     assert "Google Analytics 4" in page
