@@ -45,6 +45,7 @@ def test_public_routes_are_present_and_ordered() -> None:
 
     assert sources == [
         "/(.*)",
+        "/privacy",
         "/BingSiteAuth\\.xml",
         "/015dad665f3a6ddeeab4565e96d0dd50\\.txt",
         "/(.*)",
@@ -69,8 +70,8 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/(.*)",
     ]
 
-    assert routes[3]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
-    assert routes[3]["status"] == 301
+    assert routes[4]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
+    assert routes[4]["status"] == 301
     assert routes[-2] == {"src": "/", "dest": "/src/index.html"}
 
 
@@ -274,13 +275,21 @@ def test_about_route_exists() -> None:
     assert "check" not in about
 
 
-def test_privacy_is_an_extensionless_static_build_without_a_rewrite() -> None:
-    """Vercel filesystem handling serves the root ``privacy`` artifact as /privacy."""
+def test_privacy_is_an_extensionless_html_static_build_without_a_rewrite() -> None:
+    """Filesystem serves /privacy as HTML despite its extensionless artifact."""
     config = _config()
 
     assert {"src": "privacy", "use": "@vercel/static"} in config["builds"]
     assert (ROOT / "privacy").read_bytes() == (ROOT / "src/privacy.html").read_bytes()
-    assert all("privacy" not in route.get("src", "") for route in config["routes"])
+    privacy_headers = [route for route in config["routes"] if route.get("src") == "/privacy"]
+    assert privacy_headers == [
+        {
+            "src": "/privacy",
+            "headers": {"Content-Type": "text/html; charset=utf-8"},
+            "continue": True,
+        }
+    ]
+    assert "dest" not in privacy_headers[0]
 
 
 def test_builds_array_includes_committed_privacy_artifact() -> None:

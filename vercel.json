@@ -34,6 +34,13 @@
             "continue": true
         },
         {
+            "src": "/privacy",
+            "headers": {
+                "Content-Type": "text/html; charset=utf-8"
+            },
+            "continue": true
+        },
+        {
             "src": "/BingSiteAuth\\.xml",
             "dest": "/src/BingSiteAuth.xml"
         },
