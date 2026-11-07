@@ -27,7 +27,12 @@ from typing import Any, Iterator, Optional
 
 from backend.utils import model_router, stop_check
 
-STRIPPED_ENV_KEYS = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY")
+# Paid-API keys, plus the settings that would send `claude` somewhere other
+# than the subscription (a custom endpoint or token, Bedrock, Vertex).
+STRIPPED_ENV_KEYS = (
+    "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX",
+)
 CALL_TIMEOUT_SECONDS = 600
 
 _active = False
@@ -73,20 +78,24 @@ def generate(
     ]
     if system_prompt:
         cmd += ["--system-prompt", system_prompt]
-    # Counts toward the lab's --max-calls guard exactly like an OpenRouter request.
+    # rejudge counts calls by sent requests; everything else by cost-log entries.
     model_router._count_sent_request(None)
     with tempfile.TemporaryDirectory() as cwd:
         proc = _run(
             cmd, input=prompt, capture_output=True, text=True, cwd=cwd,
             env=child_env(), timeout=timeout_s or CALL_TIMEOUT_SECONDS,
         )
+    # A $0 cost-log entry per call: the lab's mid-arm --max-calls guard counts these.
+    model_router.record_external_cost("claude-cli", model, 0.0)
     if proc.returncode != 0:
         raise RuntimeError(f"claude -p {model} exited {proc.returncode}: {(proc.stderr or proc.stdout)[:300]}")
     try:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError as exc:
         raise RuntimeError(f"claude -p {model} printed non-JSON output: {proc.stdout[:200]}") from exc
-    text = payload.get("result") if isinstance(payload, dict) else None
+    if not isinstance(payload, dict):
+        raise RuntimeError(f"claude -p {model} printed JSON that is not an object: {proc.stdout[:200]}")
+    text = payload.get("result")
     if payload.get("is_error") or not isinstance(text, str) or not text.strip():
         raise RuntimeError(f"claude -p {model} returned no result: {proc.stdout[:300]}")
     return text

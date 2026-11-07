@@ -786,9 +786,6 @@ def _refuse_if_stop_check_conflicts_with_models(
     could not have caught it.
     """
     model_set = _resolve_lab_model_set(args)
-    if model_set.name == _LAB_MODELS.default:
-        return
-
     control_trigger = simulate_module.WINDDOWN_TRIGGER
     control_provider = simulate_module.STOP_CHECK.get("provider")
 
@@ -804,6 +801,22 @@ def _refuse_if_stop_check_conflicts_with_models(
         if isinstance(variant_stop_check, dict) and "provider" in variant_stop_check
         else control_provider
     )
+
+    if model_set.via == "claude-cli":
+        # On `claude -p` the haiku stop check runs on the subscription with the
+        # rest of the set; Jev exists only on OpenRouter (#8934).
+        uses_jev = (control_trigger == "check" and control_provider == "jev") or (
+            variant_trigger == "check" and variant_provider == "jev"
+        )
+        if uses_jev:
+            raise SystemExit(
+                f"conversation_lab: --models {model_set.name!r} runs on `claude -p`, and STOP_CHECK "
+                "provider='jev' only exists on OpenRouter. Use provider 'haiku', or pick an "
+                "OpenRouter set such as 'claude-openrouter'."
+            )
+        return
+    if model_set.name == _LAB_MODELS.default:
+        return
 
     control_conflict = control_trigger == "check" and control_provider == "haiku"
     variant_conflict = variant_trigger == "check" and variant_provider == "haiku"
@@ -1197,7 +1210,9 @@ def _openrouter_fields_for(
     off_openrouter = _is_local_model(model_set.dialogue) or model_set.via == "claude-cli"
     route = None if off_openrouter else model_router.openrouter_provider_route(model_set.dialogue)
     fields: dict[str, Any] = {"provider_route": route}
-    fields["models"] = {"set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge}
+    fields["models"] = {
+        "set": model_set.name, "dialogue": model_set.dialogue, "judge": model_set.judge, "via": model_set.via,
+    }
     fields.update(_openrouter_cost_report(cost_by_model))
     key_report = _openrouter_key_usage_report()
     if key_report is not None:

@@ -512,6 +512,7 @@ def test_ab_dry_run_reports_deepseek_provider_route_and_models_without_any_calls
         "set": "deepseek",
         "dialogue": "deepseek/deepseek-v4.1-flash",
         "judge": "deepseek/deepseek-v4-pro-0813",
+        "via": "openrouter",
     }
 
 
