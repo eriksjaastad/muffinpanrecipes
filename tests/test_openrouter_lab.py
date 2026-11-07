@@ -7,6 +7,7 @@ monkeypatched. No real API call happens anywhere in this file.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from types import SimpleNamespace
 
@@ -26,6 +27,14 @@ def _funded_account(monkeypatch):
     """Tests never hit the network; default to an account that can pay.
     Individual tests override this to exercise the balance refusal."""
     monkeypatch.setattr(cl, "_openrouter_fetch_account_balance", lambda: 100.0)
+
+
+@pytest.fixture(autouse=True)
+def _openrouter_default_set(monkeypatch):
+    """These tests cover the OpenRouter path, so the default set is the one
+    that still runs there; the shipped default runs on `claude -p` (#8934)."""
+    monkeypatch.setattr(cl, "_LAB_MODELS", dataclasses.replace(cl._LAB_MODELS, default="claude-openrouter"))
+    monkeypatch.setattr(cl, "_DEFAULT_LAB_MODEL_SET", cl._LAB_MODELS.get("claude-openrouter"))
 
 
 def test_parse_openrouter_model_splits_on_first_slash_only():

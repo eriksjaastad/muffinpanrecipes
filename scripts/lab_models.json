@@ -3,6 +3,11 @@
   "sets": {
     "claude": {
       "dialogue": "anthropic/claude-haiku-4.5",
+      "judge": "anthropic/claude-opus-4.6",
+      "via": "claude-cli"
+    },
+    "claude-openrouter": {
+      "dialogue": "anthropic/claude-haiku-4.5",
       "judge": "anthropic/claude-opus-4.6"
     },
     "deepseek": {
@@ -15,7 +20,8 @@
     },
     "claude-o55": {
       "dialogue": "anthropic/claude-haiku-4.5",
-      "judge": "anthropic/claude-opus-5.5"
+      "judge": "anthropic/claude-opus-5.5",
+      "via": "claude-cli"
     },
     "deepseek-o55": {
       "dialogue": "deepseek/deepseek-v4.1-flash",

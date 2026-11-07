@@ -1,5 +1,6 @@
 """Pytest configuration and shared fixtures for testing."""
 
+import contextlib
 import os
 
 # Tests always run in local dev context — set before any backend imports
@@ -103,6 +104,18 @@ def _reset_model_router_cost_log():
     model_router.reset_cost_log()
 
 
+@pytest.fixture(autouse=True)
+def _no_real_claude_cli(monkeypatch):
+    """No test may spend the Claude subscription: the lab's `claude -p`
+    subprocess fails unless a test replaces it (#8934)."""
+    import scripts.lab_claude_cli as lab_claude_cli
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a test reached a real `claude -p` call; stub lab_claude_cli._run")
+
+    monkeypatch.setattr(lab_claude_cli, "_run", refuse)
+
+
 # Configure hypothesis for property-based testing
 #
 # too_slow is off because it measures the machine, not the test. The first
@@ -174,6 +187,9 @@ def openrouter_lab(monkeypatch):
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-openrouter-key")
     monkeypatch.setattr(cl, "_openrouter_preflight", lambda args: None)
+    # The default set runs on `claude -p` (#8934); these tests stub the router
+    # calls themselves, so leave the router's transport as it is.
+    monkeypatch.setattr(cl.lab_claude_cli, "installed", contextlib.nullcontext)
     default = cl._DEFAULT_LAB_MODEL_SET
     monkeypatch.setattr(
         cl, "_OPENROUTER_MODEL_PRICES", {default.dialogue: (0.0, 0.0), default.judge: (0.0, 0.0)},

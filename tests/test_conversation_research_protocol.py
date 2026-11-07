@@ -112,7 +112,7 @@ def test_calibrate_models_option_routes_the_judge_through_the_named_set(tmp_path
 
     cl.main([
         "calibrate", "--from-episode", "snapshot-week", "--stage", "tuesday",
-        "--runs", "1", "--models", "claude-o55", "--results-dir", str(results_dir),
+        "--runs", "1", "--models", "deepseek-o55", "--results-dir", str(results_dir),
     ])
 
     assert seen_models, "generate_judge_response was never called"
@@ -228,7 +228,7 @@ def test_rejudge_replays_saved_prompts_and_reports_agreement(tmp_path, monkeypat
     results_dir = tmp_path / "results"
 
     cl.main([
-        "rejudge", str(source_path), "--models", "claude-o55", "--results-dir", str(results_dir),
+        "rejudge", str(source_path), "--models", "deepseek-o55", "--results-dir", str(results_dir),
     ])
 
     # Exactly the two saved prompts were replayed, verbatim, against the NEW judge.
@@ -294,7 +294,7 @@ def test_rejudge_aborts_and_writes_partial_report_when_max_calls_is_too_low(tmp_
     results_dir = tmp_path / "results"
 
     cl.main([
-        "rejudge", str(source_path), "--models", "claude-o55", "--max-calls", "1",
+        "rejudge", str(source_path), "--models", "deepseek-o55", "--max-calls", "1",
         "--results-dir", str(results_dir),
     ])
 
@@ -605,7 +605,7 @@ def test_rejudge_refuses_a_source_judged_under_an_earlier_prompt(tmp_path, monke
     _no_judge_calls(monkeypatch)
     path = _fake_ab_result(tmp_path, pairs=[_with_old_prompt_sha(_fake_pair())])
     with pytest.raises(SystemExit, match=r"differ from the source's: evaluator_prompt_sha256\."):
-        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+        cl.main(["rejudge", str(path), "--models", "deepseek-o55"])
 
 
 def test_allow_instrument_change_runs_a_deliberate_prompt_revision_comparison(tmp_path, monkeypatch, capsys):
@@ -615,7 +615,7 @@ def test_allow_instrument_change_runs_a_deliberate_prompt_revision_comparison(tm
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
     path = _fake_ab_result(tmp_path, pairs=[_with_old_prompt_sha(_fake_pair())])
     out = tmp_path / "out"
-    cl.main(["rejudge", str(path), "--models", "claude-o55", "--allow-instrument-change", "--results-dir", str(out)])
+    cl.main(["rejudge", str(path), "--models", "deepseek-o55", "--allow-instrument-change", "--results-dir", str(out)])
     report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
     assert report["rejudge_mode"] == "instrument_changed"
     assert report["instrument_changed_fields"] == ["evaluator_prompt_sha256"]
@@ -675,7 +675,7 @@ def test_rejudge_passes_each_saved_arm_order_to_the_judge(tmp_path, monkeypatch)
         }),
     )
     path = _fake_ab_result(tmp_path)
-    cl.main(["rejudge", str(path), "--models", "claude-o55", "--results-dir", str(tmp_path / "out")])
+    cl.main(["rejudge", str(path), "--models", "deepseek-o55", "--results-dir", str(tmp_path / "out")])
     assert seen == [("control", "variant"), ("variant", "control")]
 
 
@@ -788,7 +788,7 @@ def test_rejudge_same_instrument_is_reported_as_v3_retest(tmp_path, monkeypatch,
     _mock_openrouter_preflight(monkeypatch)
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
     out = tmp_path / "out"
-    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--results-dir", str(out)])
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "deepseek-o55", "--results-dir", str(out)])
     report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
     assert report["rejudge_mode"] == "retest"
     assert report["instrument_changed_fields"] == []
@@ -814,7 +814,7 @@ def test_rejudge_refuses_when_any_judge_request_setting_changed(tmp_path, monkey
     _no_judge_calls(monkeypatch)
     monkeypatch.setattr(model_router, attr, value)
     with pytest.raises(SystemExit, match=rf"differ from the source's: {field}\."):
-        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+        cl.main(["rejudge", str(path), "--models", "deepseek-o55"])
 
 
 def test_rejudge_refuses_when_the_json_retry_bound_changed(tmp_path, monkeypatch):
@@ -823,7 +823,7 @@ def test_rejudge_refuses_when_the_json_retry_bound_changed(tmp_path, monkeypatch
     _no_judge_calls(monkeypatch)
     monkeypatch.setattr(cl, "_JUDGE_JSON_MAX_RETRIES", 5)
     with pytest.raises(SystemExit, match=r"differ from the source's: json_max_retries\."):
-        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+        cl.main(["rejudge", str(path), "--models", "deepseek-o55"])
 
 
 def test_allow_instrument_change_runs_and_is_never_labelled_v3(tmp_path, monkeypatch, capsys):
@@ -853,11 +853,11 @@ def test_rejudge_of_a_source_without_a_recorded_instrument_needs_the_opt_in(tmp_
     _mock_openrouter_preflight(monkeypatch)
     _no_judge_calls(monkeypatch)
     with pytest.raises(SystemExit, match="does not record its judge instrument"):
-        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+        cl.main(["rejudge", str(path), "--models", "deepseek-o55"])
 
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
     out = tmp_path / "out"
-    cl.main(["rejudge", str(path), "--models", "claude-o55", "--allow-instrument-change", "--results-dir", str(out)])
+    cl.main(["rejudge", str(path), "--models", "deepseek-o55", "--allow-instrument-change", "--results-dir", str(out)])
     report = json.loads(next(out.glob("*-rejudge-*.json")).read_text())
     assert report["rejudge_mode"] == "instrument_unverified"
     assert "V3 test-retest agreement" not in capsys.readouterr().out
@@ -871,7 +871,7 @@ def test_rejudge_refuses_a_source_with_inconsistent_instruments(tmp_path, monkey
     _mock_openrouter_preflight(monkeypatch)
     _no_judge_calls(monkeypatch)
     with pytest.raises(SystemExit, match="different judge instruments"):
-        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "deepseek-o55"])
 
 
 def test_rejudge_refuses_a_source_scored_by_two_judge_models(tmp_path, monkeypatch):
@@ -882,7 +882,7 @@ def test_rejudge_refuses_a_source_scored_by_two_judge_models(tmp_path, monkeypat
         orientation["evidence"]["model"] = "openrouter/anthropic/claude-opus-4.6"
     path = _fake_ab_result(tmp_path, pairs=[_fake_pair(), second])
     with pytest.raises(SystemExit, match="more than one judge model"):
-        cl.main(["rejudge", str(path), "--models", "claude-o55"])
+        cl.main(["rejudge", str(path), "--models", "deepseek-o55"])
 
 
 def test_rejudge_refuses_a_source_that_does_not_record_its_judge_model(tmp_path, monkeypatch):
@@ -891,7 +891,7 @@ def test_rejudge_refuses_a_source_that_does_not_record_its_judge_model(tmp_path,
     pair = _fake_pair()
     del pair["judge_orientations"][1]["evidence"]["model"]
     with pytest.raises(SystemExit, match="which judge model"):
-        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "claude-o55"])
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, pairs=[pair])), "--models", "deepseek-o55"])
 
 
 def test_new_judge_calls_save_the_full_instrument_in_evidence():
@@ -920,13 +920,13 @@ def test_preflight_prices_only_the_judge_for_rejudge(tmp_path, monkeypatch):
                         lambda: {"anthropic/claude-opus-5.5": (0.000004, 0.00002)})
     monkeypatch.setattr(model_router, "generate_judge_response", lambda **_k: _verdict_json())
     out = tmp_path / "out"
-    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--results-dir", str(out)])
+    cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "deepseek-o55", "--results-dir", str(out)])
     assert list(out.glob("*-rejudge-*.json"))
 
     monkeypatch.setattr(cl, "_fetch_openrouter_model_prices",
                         lambda: {"anthropic/claude-haiku-4.5": (0.000001, 0.000005)})
     with pytest.raises(SystemExit, match="no published price for anthropic/claude-opus-5.5"):
-        cl.main(["rejudge", str(_fake_ab_result(tmp_path, filename="b.json")), "--models", "claude-o55"])
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path, filename="b.json")), "--models", "deepseek-o55"])
 
 
 def test_preflight_still_prices_both_models_for_ab(tmp_path, monkeypatch):
@@ -988,7 +988,7 @@ def test_cli_refuses_an_unenforceable_max_cost(tmp_path, monkeypatch, bad):
     _mock_openrouter_preflight(monkeypatch)
     _no_judge_calls(monkeypatch)
     with pytest.raises(SystemExit, match="--max-cost must be a positive finite amount"):
-        cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "claude-o55", "--max-cost", bad])
+        cl.main(["rejudge", str(_fake_ab_result(tmp_path)), "--models", "deepseek-o55", "--max-cost", bad])
 
 
 # ---------------------------------------------------------------------------
