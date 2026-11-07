@@ -71,11 +71,7 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/privacy/?$",
-            "dest": "backend/admin/app.py"
-        },
-        {
-            "src": "/this-week/?$",
+            "src": "/(this-week|privacy)/?$",
             "dest": "backend/admin/app.py"
         },
         {
