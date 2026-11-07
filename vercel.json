@@ -10,6 +10,10 @@
             }
         },
         {
+            "src": "privacy",
+            "use": "@vercel/static"
+        },
+        {
             "src": "src/**",
             "use": "@vercel/static"
         },
@@ -26,6 +30,13 @@
                 "X-Content-Type-Options": "nosniff",
                 "Referrer-Policy": "strict-origin-when-cross-origin",
                 "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline' https://www.googletagmanager.com; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data: https://www.google-analytics.com https://*.google-analytics.com; connect-src 'self' https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+            },
+            "continue": true
+        },
+        {
+            "src": "/privacy",
+            "headers": {
+                "Content-Type": "text/html; charset=utf-8"
             },
             "continue": true
         },
@@ -71,7 +82,7 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/(this-week|privacy)/?$",
+            "src": "/this-week/?$",
             "dest": "backend/admin/app.py"
         },
         {
