@@ -3,9 +3,9 @@
 
 The command never deploys the caller's checkout. It fetches ``origin/main``,
 creates a clean detached worktree at that commit, copies the validated source
-project link into the ignored worktree, deploys that directory through the
+project link into the ignored worktree, locally builds and deploys each target through the
 workspace Vercel-safe wrapper with ``gitSha`` metadata, runs the preview health
-check, deploys the same directory to production, runs the production health
+check, locally builds and deploys production, runs the production health
 check, and proves the production alias resolves to the fetched SHA. Deployment
 health gates are read-only: they pass ``--no-alert`` so an operator invocation
 cannot overwrite the shared monitor state or require alert-transport secrets.
@@ -109,14 +109,14 @@ def _validate_environment_binding() -> None:
         raise DeployError("Vercel project-binding environment conflicts with muffinpanrecipes")
 
 
-def _vercel(command: list[str]) -> None:
+def _vercel(command: list[str], *, cwd: Path = ROOT) -> None:
     """Run a Vercel mutation through the credential-safe workspace wrapper."""
     _validate_environment_binding()
     if not VERCEL_SAFE_COMMAND.is_file():
         raise DeployError(f"Vercel safe command wrapper is missing: {VERCEL_SAFE_COMMAND}")
     _run(
         [str(VERCEL_SAFE_COMMAND), *command],
-        cwd=ROOT,
+        cwd=cwd,
         timeout=VERCEL_TIMEOUT_SECONDS,
     )
 
@@ -303,6 +303,18 @@ def _preview_deployment_url(project_id: str, sha: str, before_ids: set[str]) -> 
     )
 
 
+def _build_prebuilt(worktree: Path, *, production: bool) -> None:
+    """Build one deployment target locally and require its privacy artifact."""
+    command = ["build", "--yes"]
+    if production:
+        command.append("--prod")
+    _vercel(command, cwd=worktree)
+    output = worktree / ".vercel" / "output"
+    privacy = output / "static" / "privacy"
+    if not (output / "config.json").is_file() or not privacy.is_file():
+        raise DeployError("Vercel prebuilt output is missing config.json or static/privacy")
+
+
 def _deploy_preview(worktree: Path, sha: str) -> str:
     before_ids = {
         deployment["uid"]
@@ -314,6 +326,7 @@ def _deploy_preview(worktree: Path, sha: str) -> str:
             "deploy",
             str(worktree),
             "--target=preview",
+            "--prebuilt",
             "--yes",
             "--meta",
             f"{GIT_SHA_META_KEY}={sha}",
@@ -340,6 +353,7 @@ def _deploy_production(worktree: Path, sha: str) -> None:
             "deploy",
             str(worktree),
             "--prod",
+            "--prebuilt",
             "--yes",
             "--meta",
             f"{GIT_SHA_META_KEY}={sha}",
@@ -428,10 +442,14 @@ def _deploy() -> int:
     _validate_environment_binding()
     sha = _fetch_origin_main()
     with _detached_origin_main(sha) as worktree:
+        _build_prebuilt(worktree, production=False)
+        print("Local preview build passed")
         preview_url = _deploy_preview(worktree, sha)
         print(f"Preview deployed from origin/main {sha}: {preview_url}")
         _health_check(worktree, base_url=preview_url)
         print("Preview health check passed")
+        _build_prebuilt(worktree, production=True)
+        print("Local production build passed")
         _deploy_production(worktree, sha)
         print("Production deployment requested")
         _wait_for_production_sha(PRODUCTION_URL, sha)
