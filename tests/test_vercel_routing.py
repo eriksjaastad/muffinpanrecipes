@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 # `{"handle": "filesystem"}` so a stale committed copy of the same path can
 # never shadow them (see test_lambda_only_reader_routes_precede_filesystem_handling).
 _LAMBDA_ONLY_READER_ROUTES = (
-    "/(this-week|privacy)/?$",
+    "/this-week/?$",
     "/recipes/?$",
     "/recipes\\.json",
     "/sitemap\\.xml",
@@ -53,7 +53,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/admin/(.*)",
         "/auth/(.*)",
         "/health",
-        "/(this-week|privacy)/?$",
+        "/this-week/?$",
         "/recipes/?$",
         "/recipes\\.json",
         "/sitemap\\.xml",
@@ -274,23 +274,21 @@ def test_about_route_exists() -> None:
     assert "check" not in about
 
 
-def test_privacy_route_targets_public_app() -> None:
-    routes = _routes()
-    privacy = next((route for route in routes if route.get("src") == "/(this-week|privacy)/?$"), None)
+def test_privacy_is_an_extensionless_static_build_without_a_rewrite() -> None:
+    """Vercel filesystem handling serves the root ``privacy`` artifact as /privacy."""
+    config = _config()
 
-    assert privacy is not None, "/privacy route is missing from vercel.json"
-    assert privacy["dest"] == "backend/admin/app.py"
+    assert {"src": "privacy", "use": "@vercel/static"} in config["builds"]
+    assert (ROOT / "privacy").read_bytes() == (ROOT / "src/privacy.html").read_bytes()
+    assert all("privacy" not in route.get("src", "") for route in config["routes"])
 
 
-def test_builds_array_is_unchanged() -> None:
-    """#6684's routing change must not touch `builds` — see PR #90's root cause.
+def test_builds_array_includes_committed_privacy_artifact() -> None:
+    """Keep explicit builds stable, including the extensionless privacy page.
 
     Vercel ignores `buildCommand` whenever a top-level `builds` array is
-    present. That is exactly why PR #88's static artifacts never got built.
-    The fix here is routing (static-first with a lambda fallback for content
-    that isn't committed yet), not a build-system migration — `builds` stays
-    exactly as-is: the Python lambda plus `@vercel/static` for `src/**` and
-    admin static.
+    present, so the committed extensionless artifact must be an explicit
+    static build alongside the Python lambda, `src/**`, and admin static.
     """
     config = _config()
 
@@ -302,6 +300,10 @@ def test_builds_array_is_unchanged() -> None:
                 "maxLambdaSize": "50mb",
                 "maxDuration": 300,
             },
+        },
+        {
+            "src": "privacy",
+            "use": "@vercel/static",
         },
         {
             "src": "src/**",

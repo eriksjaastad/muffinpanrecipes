@@ -10,6 +10,10 @@
             }
         },
         {
+            "src": "privacy",
+            "use": "@vercel/static"
+        },
+        {
             "src": "src/**",
             "use": "@vercel/static"
         },
@@ -71,7 +75,7 @@
             "dest": "backend/admin/app.py"
         },
         {
-            "src": "/(this-week|privacy)/?$",
+            "src": "/this-week/?$",
             "dest": "backend/admin/app.py"
         },
         {
