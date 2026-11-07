@@ -122,6 +122,10 @@
             "dest": "/src/about.html"
         },
         {
+            "src": "/privacy",
+            "dest": "/src/privacy.html"
+        },
+        {
             "src": "/",
             "dest": "/src/index.html"
         },

@@ -65,6 +65,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/assets/(.*)",
         "/robots\\.txt",
         "/about",
+        "/privacy",
         "/",
         "/(.*)",
     ]

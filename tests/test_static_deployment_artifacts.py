@@ -38,6 +38,7 @@ PUBLISHED_EPISODE_SLUG = "mini-lemon-meringue-cups"  # cron-published, 2026-W10
 REQUIRED_ARTIFACTS = (
     "index.html",
     "about.html",
+    "privacy.html",
     "recipes/index.html",
     f"recipes/{SEED_RECIPE_SLUG}/index.html",
     f"recipes/{PUBLISHED_EPISODE_SLUG}/index.html",

@@ -49,6 +49,25 @@ def _load_page_for_reader(pathname: str, route: str) -> str | None:
         )
         return None
 
+
+def _ensure_privacy_footer(page_html: str) -> str:
+    """Add the required Privacy link to stored pages built before card 8907."""
+    if not page_html:
+        return page_html
+    footer_at = page_html.find("<footer")
+    if footer_at < 0:
+        return page_html
+    marker = '<a href="/about">About</a>'
+    before_footer, footer = page_html[:footer_at], page_html[footer_at:]
+    if 'href="/privacy"' in footer:
+        return page_html
+    return before_footer + footer.replace(
+        marker,
+        marker + ' &middot; <a href="/privacy">Privacy</a>',
+        1,
+    )
+
+
 # Two routers: one for the public page, one for the API
 router = APIRouter(tags=["episodes"])
 
@@ -65,10 +84,9 @@ async def this_week_page():
     # handled like a missing page (placeholder / 503 logic below).
     page_html = _load_page_for_reader(f"pages/{episode_id}/index.html", "/this-week")
     if page_html:
-        # Serve the stored page byte-for-byte. Mutating reader responses here
-        # would make analytics and other HTML behavior depend on the route
-        # a request happened to take.
-        return HTMLResponse(content=page_html)
+        # Stored pages survive deploys in Blob. Add the required footer link at
+        # read time so the current week is covered before its next cron render.
+        return HTMLResponse(content=_ensure_privacy_footer(page_html))
 
     # No stored page. There are THREE reasons for that, not two, and only one
     # of them is a failure — see episode_page_is_due() for the full rule.
@@ -314,7 +332,7 @@ async def recipe_page(slug: str):
         )
         page, read_error = None, exc
     if page:
-        return HTMLResponse(content=page)
+        return HTMLResponse(content=_ensure_privacy_footer(page))
 
     # Seed recipes — rendered from src/seed_recipes.json (single renderer).
     seed = _load_seed_recipes().get(slug)
@@ -372,5 +390,9 @@ def _placeholder_page(episode_id: str, in_progress: bool = False) -> str:
             Browse Recipes
         </a>
     </main>
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
 </body>
 </html>"""

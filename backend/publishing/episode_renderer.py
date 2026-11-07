@@ -1158,7 +1158,7 @@ def render_episode_page(
 {related_block_html}
     <footer class="site-footer">
         <p class="site-footer__motto">The struggle is the story.</p>
-        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
 </body>

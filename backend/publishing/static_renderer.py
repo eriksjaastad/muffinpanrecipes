@@ -17,6 +17,7 @@ from backend.publishing.episode_renderer import SEO_DESCRIPTION_MAX_LENGTH, _seo
 
 SITE_BASE = "https://muffinpanrecipes.com"
 RECIPES_CANONICAL = f"{SITE_BASE}/recipes"
+PRIVACY_CANONICAL = f"{SITE_BASE}/privacy"
 CATEGORY_ORDER = ["Breakfast", "Savory", "Sweet", "Party"]
 
 # The collection page has no single recipe photo of its own, so it reuses the
@@ -136,7 +137,7 @@ def render_recipes_index(recipes: list[dict]) -> str:
 {sections}    </main>
     <footer class="site-footer">
         <p class="site-footer__motto">The struggle is the story.</p>
-        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
     </footer>
 </body>
 </html>
@@ -162,6 +163,7 @@ def render_sitemap(recipes: list[dict]) -> str:
         f"  <url><loc>{SITE_BASE}/</loc></url>",
         f"  <url><loc>{RECIPES_CANONICAL}</loc></url>",
         f"  <url><loc>{SITE_BASE}/this-week</loc></url>",
+        f"  <url><loc>{PRIVACY_CANONICAL}</loc></url>",
     ]
     for recipe in recipes:
         slug = recipe.get("slug")
@@ -204,6 +206,50 @@ def render_placeholder_page(episode_id: str) -> str:
         <p class="placeholder__body">The team hasn't started this week's recipe yet. Check back Monday morning when the brainstorm begins.</p>
         <a href="/" class="btn-outline">Browse Recipes</a>
     </main>
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+</body>
+</html>"""
+
+
+def render_privacy_page() -> str:
+    """Render the public, plain-language privacy disclosure."""
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    {GA4_TAG}
+    <title>Privacy | Muffin Pan Recipes</title>
+    <meta name="description" content="How Muffin Pan Recipes collects, uses, and retains visitor information.">
+    <link rel="canonical" href="{PRIVACY_CANONICAL}">
+    <link rel="stylesheet" href="/assets/site.css">
+</head>
+<body>
+    <nav class="site-nav"><a href="/" class="site-nav__back">&larr; Home</a></nav>
+    <main class="site-main">
+        <div class="page-head">
+            <p class="page-head__eyebrow">The plain-language version</p>
+            <h1 class="page-head__title">Privacy</h1>
+            <p class="page-head__sub">What this site collects, why it collects it, and who handles it.</p>
+        </div>
+        <h2>When you browse</h2>
+        <p class="about-copy">Google Analytics 4 records page views and related usage information, such as the page visited, approximate location, browser, device, and referral source. Google Analytics uses cookies and similar identifiers to do this. We use aggregate reports to understand which recipes people read and whether the site works well.</p>
+        <p class="about-copy">Vercel hosts the site and Vercel Blob serves recipe images. Like other web hosts, Vercel receives standard request information such as your IP address, browser or user agent, requested URL, and request time so it can deliver and secure the site.</p>
+        <h2>Information you choose to provide</h2>
+        <p class="about-copy">If you submit an email address to the newsletter subscription endpoint, the site stores that address for the subscription. For local storage, unsubscribing marks the record as unsubscribed but keeps the address until you ask us to remove it. We do not sell personal information.</p>
+        <h2>Processors and retention</h2>
+        <p class="about-copy">Google processes analytics information, and Vercel processes hosting, request, and image-delivery information. Each provider retains service data under its own privacy and retention policies. Local newsletter records have no automatic deletion schedule and remain stored after unsubscribe until a deletion request; the site does not set a separate longer retention period for visitor analytics or hosting logs in its code.</p>
+        <h2>Your choices</h2>
+        <p class="about-copy">You can block or clear analytics cookies in your browser. To ask about your information, unsubscribe, or request deletion, email <a href="mailto:hello@muffinpanrecipes.com">hello@muffinpanrecipes.com</a>.</p>
+        <p class="about-copy"><strong>Last updated:</strong> November 7, 2026.</p>
+    </main>
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
 </body>
 </html>"""
 
@@ -478,7 +524,7 @@ def render_home(recipes: list[dict]) -> str:
 
     <footer class="site-footer site-footer--home">
         <p class="site-footer__motto">Everything fits in a muffin pan.</p>
-        <p class="site-footer__copy"><a href="/about">About</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
     </footer>
 
     <!-- Simple JS to handle recipes and filtering. Runs after the page
