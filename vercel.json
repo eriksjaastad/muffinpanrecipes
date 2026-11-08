@@ -14,6 +14,10 @@
             "use": "@vercel/static"
         },
         {
+            "src": "privacy/**",
+            "use": "@vercel/static"
+        },
+        {
             "src": "backend/admin/static/**",
             "use": "@vercel/static"
         }
@@ -88,7 +92,7 @@
         },
         {
             "src": "/privacy/?$",
-            "dest": "/src/privacy.html",
+            "dest": "/privacy/index.html",
             "check": true
         },
         {

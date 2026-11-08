@@ -275,16 +275,16 @@ def test_about_route_exists() -> None:
     assert "check" not in about
 
 
-def test_privacy_uses_the_existing_remote_static_build() -> None:
-    """Serve /privacy from src/**, which the remote Vercel build preserves."""
+def test_privacy_uses_a_remote_preserved_wildcard_static_build() -> None:
+    """Serve /privacy from a wildcard builder retained by remote Vercel builds."""
     config = _config()
 
-    assert (ROOT / "privacy").read_bytes() == (ROOT / "src/privacy.html").read_bytes()
+    assert (ROOT / "privacy/index.html").read_bytes() == (ROOT / "src/privacy.html").read_bytes()
     privacy_routes = [route for route in config["routes"] if "privacy" in route.get("src", "")]
     assert privacy_routes == [
         {
             "src": "/privacy/?$",
-            "dest": "/src/privacy.html",
+            "dest": "/privacy/index.html",
             "check": True,
         }
     ]
@@ -292,12 +292,12 @@ def test_privacy_uses_the_existing_remote_static_build() -> None:
     assert config["routes"].index(privacy_routes[0]) < filesystem_index
 
 
-def test_builds_array_uses_the_existing_remote_static_glob() -> None:
-    """Keep explicit builds stable without a separate extensionless builder.
+def test_builds_array_uses_remote_preserved_static_globs() -> None:
+    """Build privacy with the wildcard form retained by remote deployments.
 
     Vercel ignores `buildCommand` whenever a top-level `builds` array is
-    present. The privacy page belongs under the existing `src/**` build that
-    remote deployments already preserve, alongside the Python lambda.
+    present. Provider evidence showed that the exact-file privacy builder was
+    omitted remotely while wildcard builders and the Python lambda survived.
     """
     config = _config()
 
@@ -312,6 +312,10 @@ def test_builds_array_uses_the_existing_remote_static_glob() -> None:
         },
         {
             "src": "src/**",
+            "use": "@vercel/static",
+        },
+        {
+            "src": "privacy/**",
             "use": "@vercel/static",
         },
         {
