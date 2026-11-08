@@ -510,6 +510,8 @@ def test_privacy_page_matches_collection_and_processor_code() -> None:
     assert "marks the record as unsubscribed but keeps the address until you ask us to remove it" in page
     assert "hello@muffinpanrecipes.com" in page
     assert page.count("gtag('config', 'G-05P73D3237')") == 1
+    assert '<link rel="canonical" href="https://muffinpanrecipes.com/privacy">' in page
+    assert '<meta property="og:url" content="https://muffinpanrecipes.com/privacy">' in page
 
 
 def test_every_rendered_public_footer_links_privacy() -> None:
