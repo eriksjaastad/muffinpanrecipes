@@ -45,7 +45,6 @@ def test_public_routes_are_present_and_ordered() -> None:
 
     assert sources == [
         "/(.*)",
-        "/privacy",
         "/BingSiteAuth\\.xml",
         "/015dad665f3a6ddeeab4565e96d0dd50\\.txt",
         "/(.*)",
@@ -58,6 +57,7 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/recipes/?$",
         "/recipes\\.json",
         "/sitemap\\.xml",
+        "/privacy/?$",
         "/recipes/([^/]+)$",
         None,  # {"handle": "filesystem"} has no "src" key
         "/recipes/([^/]+)$",
@@ -70,8 +70,8 @@ def test_public_routes_are_present_and_ordered() -> None:
         "/(.*)",
     ]
 
-    assert routes[4]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
-    assert routes[4]["status"] == 301
+    assert routes[3]["has"] == [{"type": "host", "value": "www.muffinpanrecipes.com"}]
+    assert routes[3]["status"] == 301
     assert routes[-2] == {"src": "/", "dest": "/src/index.html"}
 
 
@@ -275,29 +275,29 @@ def test_about_route_exists() -> None:
     assert "check" not in about
 
 
-def test_privacy_is_an_extensionless_html_static_build_without_a_rewrite() -> None:
-    """Filesystem serves /privacy as HTML despite its extensionless artifact."""
+def test_privacy_uses_the_existing_remote_static_build() -> None:
+    """Serve /privacy from src/**, which the remote Vercel build preserves."""
     config = _config()
 
-    assert {"src": "privacy", "use": "@vercel/static"} in config["builds"]
     assert (ROOT / "privacy").read_bytes() == (ROOT / "src/privacy.html").read_bytes()
-    privacy_headers = [route for route in config["routes"] if route.get("src") == "/privacy"]
-    assert privacy_headers == [
+    privacy_routes = [route for route in config["routes"] if "privacy" in route.get("src", "")]
+    assert privacy_routes == [
         {
-            "src": "/privacy",
-            "headers": {"Content-Type": "text/html; charset=utf-8"},
-            "continue": True,
+            "src": "/privacy/?$",
+            "dest": "/src/privacy.html",
+            "check": True,
         }
     ]
-    assert "dest" not in privacy_headers[0]
+    filesystem_index = next(i for i, route in enumerate(config["routes"]) if route.get("handle") == "filesystem")
+    assert config["routes"].index(privacy_routes[0]) < filesystem_index
 
 
-def test_builds_array_includes_committed_privacy_artifact() -> None:
-    """Keep explicit builds stable, including the extensionless privacy page.
+def test_builds_array_uses_the_existing_remote_static_glob() -> None:
+    """Keep explicit builds stable without a separate extensionless builder.
 
     Vercel ignores `buildCommand` whenever a top-level `builds` array is
-    present, so the committed extensionless artifact must be an explicit
-    static build alongside the Python lambda, `src/**`, and admin static.
+    present. The privacy page belongs under the existing `src/**` build that
+    remote deployments already preserve, alongside the Python lambda.
     """
     config = _config()
 
@@ -309,10 +309,6 @@ def test_builds_array_includes_committed_privacy_artifact() -> None:
                 "maxLambdaSize": "50mb",
                 "maxDuration": 300,
             },
-        },
-        {
-            "src": "privacy",
-            "use": "@vercel/static",
         },
         {
             "src": "src/**",
