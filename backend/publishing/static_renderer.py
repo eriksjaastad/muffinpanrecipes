@@ -225,6 +225,7 @@ def render_privacy_page() -> str:
     <title>Privacy | Muffin Pan Recipes</title>
     <meta name="description" content="How Muffin Pan Recipes collects, uses, and retains visitor information.">
     <link rel="canonical" href="{PRIVACY_CANONICAL}">
+    <meta property="og:url" content="{PRIVACY_CANONICAL}">
     <link rel="stylesheet" href="/assets/site.css">
 </head>
 <body>
