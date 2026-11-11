@@ -80,9 +80,11 @@ Before merging anything that touches `cron_routes.py`, `episode_renderer.py`, `s
 ## Production deployment guard
 
 Production deploys use `doppler run -- uv run python scripts/deploy_main.py`.
-Deployments are bound to reviewed `origin/main`, require preview and production
-health/provenance, and must not use the caller's dirty checkout or direct Vercel
-commands. Use `--check` for a read-only production drift check. See
+Deployments are bound to reviewed `origin/main`, build one unaliased production
+deployment, require staged and live production health/provenance, and promote
+that exact build. Remote branch previews and direct Vercel commands are not
+supported; use local previews before merge. Use `--check` for a read-only
+production drift check. See
 `uv run python scripts/deploy_main.py --help` and its module docstring for the
 operator commands and gates.
 

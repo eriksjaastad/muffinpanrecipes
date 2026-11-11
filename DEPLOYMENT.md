@@ -100,9 +100,10 @@ doppler run -- uv run python scripts/deploy_main.py --check
 ```
 
 `deploy_main.py` is the only supported production deployment entry point. It
-binds deployment to reviewed `origin/main`, requires preview health before the
-production deploy, and requires production health plus provenance afterwards.
-Its preview and production health gates use `--no-alert`, so deploys cannot
+binds deployment to reviewed `origin/main`, creates one unaliased production
+build, verifies it, and promotes that exact deployment without a second build.
+It then requires live production health plus provenance. Its staged and live
+health gates use `--no-alert`, so deploys cannot
 overwrite the dedicated monitor's recovery state or depend on production
 alert-transport credentials.
 See `uv run python scripts/deploy_main.py --help` and its module docstring for
@@ -111,7 +112,10 @@ the operator commands and gates.
 ### Deployment contract
 
 Do not deploy from a dirty or unreviewed checkout or use direct Vercel commands.
-A deployment is complete only after preview and production verification pass.
+Remote branch previews are prohibited: use local previews during development,
+then let the wrapper build only the final reviewed `origin/main` commit. A
+deployment is complete only after staged-production and live-production
+verification pass.
 
 Full rebuild (`uv run python -m scripts.build_site --full-rebuild`) is an
 explicit, separate operator action — it is the only supported way to roll out
