@@ -73,7 +73,7 @@ def test_deploy_sequence_health_precedes_promotion_and_proof(
     monkeypatch.setattr(
         deploy_main,
         "_promote_staged_production",
-        lambda url: events.append(("promote", url)),
+        lambda deployment_id: events.append(("promote", deployment_id)),
     )
     monkeypatch.setattr(
         deploy_main,
@@ -88,7 +88,7 @@ def test_deploy_sequence_health_precedes_promotion_and_proof(
         ("worktree", SHA),
         ("stage", tmp_path, SHA),
         ("health", tmp_path, "https://staged.example"),
-        ("promote", "https://staged.example"),
+        ("promote", "staged"),
         ("identity", deploy_main.PRODUCTION_URL, "staged", SHA),
         ("health", tmp_path, None),
         ("identity", deploy_main.PRODUCTION_URL, "staged", SHA),
@@ -251,18 +251,21 @@ def test_staged_production_build_is_unaliased_and_pins_origin_sha(monkeypatch, t
 
 def test_promotion_targets_the_exact_verified_deployment(monkeypatch):
     seen = {}
+    monkeypatch.setattr(
+        deploy_main,
+        "_vercel_api_post",
+        lambda path, params: seen.update(path=path, params=params),
+    )
 
-    monkeypatch.setattr(deploy_main, "_vercel", lambda command: seen.update(command=command))
+    deploy_main._promote_staged_production("dpl_staged")
 
-    deploy_main._promote_staged_production("https://staged.example")
-
-    assert seen["command"] == [
-        "promote",
-        "https://staged.example",
-        "--yes",
-        "--timeout",
-        "5m",
-    ]
+    assert seen == {
+        "path": (
+            "/v10/projects/prj_zQgUD5QXAc1OHpgyzyTlbqxvN1Ww/"
+            "promote/dpl_staged"
+        ),
+        "params": {"teamId": deploy_main.EXPECTED_PROJECT_LINK["orgId"]},
+    }
 
 
 def test_rest_deployment_lookups_pin_canonical_team(monkeypatch):
@@ -584,31 +587,86 @@ def test_production_identity_rejects_same_sha_replacement(monkeypatch):
         )
 
 
-def test_promotion_uses_workspace_safe_wrapper(monkeypatch, tmp_path):
-    wrapper = tmp_path / "vercel-safe-command.sh"
-    wrapper.write_text("#!/bin/sh\n", encoding="utf-8")
+def test_rest_promotion_is_credential_safe(monkeypatch):
+    class Response:
+        status = 201
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
     seen = {}
-    monkeypatch.setattr(deploy_main, "VERCEL_SAFE_COMMAND", wrapper)
-    monkeypatch.setattr(
-        deploy_main,
-        "_run",
-        lambda command, *, cwd, timeout: seen.update(command=command, cwd=cwd, timeout=timeout),
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+
+    def fake_urlopen(request, timeout):
+        seen.update(request=request, timeout=timeout)
+        return Response()
+
+    monkeypatch.setattr(deploy_main, "urlopen", fake_urlopen)
+
+    deploy_main._vercel_api_post(
+        "/v10/projects/project/promote/deployment", {"teamId": "team"}
     )
 
-    deploy_main._promote_staged_production("https://staged.example")
+    request = seen["request"]
+    assert request.full_url.endswith("?teamId=team")
+    assert request.get_method() == "POST"
+    assert request.data == b""
+    assert request.get_header("Authorization") == "Bearer test-token"
+    assert seen["timeout"] == 20
 
-    assert seen == {
-        "command": [
-            str(wrapper),
-            "promote",
-            "https://staged.example",
-            "--yes",
-            "--timeout",
-            "5m",
-        ],
-        "cwd": deploy_main.ROOT,
-        "timeout": deploy_main.VERCEL_TIMEOUT_SECONDS,
-    }
+
+def test_rest_promotion_rejects_http_failure_without_body(monkeypatch):
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(
+        deploy_main,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            deploy_main.HTTPError(
+                "https://api.vercel.com", 409, "conflict", {}, None
+            )
+        ),
+    )
+
+    with pytest.raises(deploy_main.DeployError, match="HTTP 409") as exc_info:
+        deploy_main._vercel_api_post("/promotion", {})
+
+    assert "conflict" not in str(exc_info.value)
+    assert "test-token" not in str(exc_info.value)
+
+
+def test_rest_promotion_rejects_transport_failure(monkeypatch):
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(
+        deploy_main,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("secret body")),
+    )
+
+    with pytest.raises(deploy_main.DeployError, match="TimeoutError") as exc_info:
+        deploy_main._vercel_api_post("/promotion", {})
+
+    assert "secret body" not in str(exc_info.value)
+    assert "test-token" not in str(exc_info.value)
+
+
+def test_rest_promotion_rejects_unexpected_success_status(monkeypatch):
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(deploy_main, "urlopen", lambda *_args, **_kwargs: Response())
+
+    with pytest.raises(deploy_main.DeployError, match="returned HTTP 200"):
+        deploy_main._vercel_api_post("/promotion", {})
 
 
 def test_environment_project_binding_allows_absent_or_matching_and_rejects_conflicts(monkeypatch):

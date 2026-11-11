@@ -12,16 +12,18 @@ fetched SHA. Deployment
 health gates are read-only: they pass ``--no-alert`` so an operator invocation
 cannot overwrite the shared monitor state or require alert-transport secrets.
 
-Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
-raw CLI output cannot expose an operations token. Deployment URL discovery and
-production SHA verification use allowlisted Vercel REST fields instead.
+The build mutation uses ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
+raw CLI output cannot expose an operations token. Promotion uses Vercel's
+no-rebuild REST endpoint, and deployment discovery/provenance uses allowlisted
+REST fields; no REST response body is printed.
 Staged and production metadata each get at most three retries with 10, 20,
 and 40 second backoff (a bounded ~70 second observation window). After the
 promotion,
 the exact deployment ID and SHA are observed together before the production
 health check and verified once more afterwards. The sole remote build uses the protected
 ``vercel deploy --prod --skip-domain --yes`` path against fetched
-``origin/main``; its health check always precedes ``vercel promote``. Branch
+``origin/main``; its health check always precedes Vercel's documented
+no-rebuild Production promotion REST request. Branch
 and work-in-progress commits must use local previews rather than remote Vercel
 deployments.
 
@@ -146,6 +148,38 @@ def _vercel_api_json(path: str, params: dict[str, str]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise DeployError("Vercel REST response was not an object")
     return payload
+
+
+def _vercel_api_post(path: str, params: dict[str, str]) -> None:
+    """Run one credential-safe Vercel REST mutation without printing its body."""
+    _validate_environment_binding()
+    token = os.environ.get("VERCEL_API_TOKEN")
+    if not token:
+        raise DeployError("VERCEL_API_TOKEN is required for Vercel REST promotion")
+    url = f"{VERCEL_API_BASE}{path}?{urlencode(params)}"
+    request = Request(
+        url,
+        data=b"",
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urlopen(request, timeout=20) as response:
+            if response.status not in {201, 202}:
+                raise DeployError(
+                    f"Vercel REST promotion returned HTTP {response.status}"
+                )
+    except HTTPError as exc:
+        raise DeployError(
+            f"Vercel REST promotion failed with HTTP {exc.code}"
+        ) from exc
+    except OSError as exc:
+        raise DeployError(
+            f"Vercel REST promotion failed: {type(exc).__name__}"
+        ) from exc
 
 
 def _read_project_link(root: Path = ROOT) -> dict[str, str]:
@@ -353,16 +387,11 @@ def _health_check(worktree: Path, *, base_url: str | None = None) -> None:
     _run(command, cwd=worktree, timeout=HEALTH_TIMEOUT_SECONDS)
 
 
-def _promote_staged_production(deployment_url: str) -> None:
-    """Assign production domains to the already-built deployment."""
-    _vercel(
-        [
-            "promote",
-            deployment_url,
-            "--yes",
-            "--timeout",
-            "5m",
-        ]
+def _promote_staged_production(deployment_id: str) -> None:
+    """Assign production domains through Vercel's no-rebuild REST endpoint."""
+    _vercel_api_post(
+        f"/v10/projects/{EXPECTED_PROJECT_LINK['projectId']}/promote/{deployment_id}",
+        {"teamId": EXPECTED_PROJECT_LINK["orgId"]},
     )
 
 
@@ -522,7 +551,7 @@ def _deploy() -> int:
         print(f"Production build staged from origin/main {sha}: {staged_url}")
         _health_check(worktree, base_url=staged_url)
         print("Staged production health check passed")
-        _promote_staged_production(staged_url)
+        _promote_staged_production(staged_deployment_id)
         print("Verified staged deployment promoted")
         _wait_for_production_identity(PRODUCTION_URL, staged_deployment_id, sha)
         _health_check(worktree)
