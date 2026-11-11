@@ -4,7 +4,8 @@
 The command never deploys the caller's checkout. It fetches ``origin/main``,
 creates a clean detached worktree at that commit, copies the validated source
 project link into the ignored worktree, builds one unaliased production
-deployment through the workspace Vercel-safe wrapper with ``gitSha`` metadata,
+deployment through the workspace Vercel-safe wrapper with ``gitSha`` and a
+unique per-release marker,
 runs the staged-deployment health check, promotes that exact deployment, runs
 the production health check, and proves the production alias resolves to the
 fetched SHA. Deployment
@@ -17,8 +18,8 @@ production SHA verification use allowlisted Vercel REST fields instead.
 Staged and production metadata each get at most three retries with 10, 20,
 and 40 second backoff (a bounded ~70 second observation window). After the
 promotion,
-the expected production SHA is observed before the production health check and
-verified once more afterwards. The sole remote build uses the protected
+the exact deployment ID and SHA are observed together before the production
+health check and verified once more afterwards. The sole remote build uses the protected
 ``vercel deploy --prod --skip-domain --yes`` path against fetched
 ``origin/main``; its health check always precedes ``vercel promote``. Branch
 and work-in-progress commits must use local previews rather than remote Vercel
@@ -44,6 +45,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -56,6 +58,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 PRODUCTION_URL = "https://muffinpanrecipes.com"
 GIT_SHA_META_KEY = "gitSha"
+RELEASE_META_KEY = "sagaRelease"
 VERCEL_API_BASE = "https://api.vercel.com"
 VERCEL_SAFE_COMMAND = Path.home() / ".openclaw/workspace/ops/vercel-safe-command.sh"
 PROVIDER_RETRY_DELAYS_SECONDS = (10, 20, 40)
@@ -254,6 +257,7 @@ def _deployment_projection(value: Any) -> dict[str, Any] | None:
         return None
     metadata = value.get("meta")
     git_sha = metadata.get(GIT_SHA_META_KEY) if isinstance(metadata, dict) else None
+    release_id = metadata.get(RELEASE_META_KEY) if isinstance(metadata, dict) else None
     aliases = value.get("alias")
     if isinstance(aliases, str):
         aliases = [aliases]
@@ -266,6 +270,7 @@ def _deployment_projection(value: Any) -> dict[str, Any] | None:
         "target": value.get("target") if isinstance(value.get("target"), str) else None,
         "state": value.get("state") if isinstance(value.get("state"), str) else None,
         "gitSha": git_sha if isinstance(git_sha, str) else None,
+        "releaseId": release_id if isinstance(release_id, str) else None,
     }
 
 
@@ -285,9 +290,9 @@ def _deployment_list(project_id: str) -> list[dict[str, Any]]:
 
 
 def _staged_production_deployment(
-    project_id: str, sha: str, before_ids: set[str]
+    project_id: str, sha: str, release_id: str, before_ids: set[str]
 ) -> dict[str, Any]:
-    """Wait for a new unaliased READY production build with the requested SHA."""
+    """Wait for this release's new READY production build."""
     last_state = "not visible"
     for attempt in range(MAX_PROVIDER_RETRIES + 1):
         if attempt:
@@ -298,6 +303,7 @@ def _staged_production_deployment(
                 deployment_id
                 and deployment_id not in before_ids
                 and deployment["gitSha"] == sha
+                and deployment["releaseId"] == release_id
                 and deployment["target"] == "production"
             ):
                 last_state = deployment["state"] or "unknown"
@@ -312,6 +318,7 @@ def _staged_production_deployment(
 
 def _stage_production(worktree: Path, sha: str) -> dict[str, Any]:
     """Build fetched ``origin/main`` once without assigning production domains."""
+    release_id = uuid.uuid4().hex
     before_ids = {
         deployment["uid"]
         for deployment in _deployment_list(EXPECTED_PROJECT_LINK["projectId"])
@@ -326,10 +333,12 @@ def _stage_production(worktree: Path, sha: str) -> dict[str, Any]:
             "--yes",
             "--meta",
             f"{GIT_SHA_META_KEY}={sha}",
+            "--meta",
+            f"{RELEASE_META_KEY}={release_id}",
         ]
     )
     return _staged_production_deployment(
-        EXPECTED_PROJECT_LINK["projectId"], sha, before_ids
+        EXPECTED_PROJECT_LINK["projectId"], sha, release_id, before_ids
     )
 
 
@@ -443,6 +452,40 @@ def _wait_for_production_deployment(
     )
 
 
+def _wait_for_production_identity(
+    production_url: str, expected_deployment_id: str, expected_sha: str
+) -> None:
+    """Prove the alias and exact deployment metadata agree in one observation."""
+    production_host = _host(production_url)
+    if not production_host:
+        raise DeployError("production URL has no hostname")
+    project_link = _read_project_link()
+    observed_id = None
+    observed_sha = None
+    for attempt in range(MAX_PROVIDER_RETRIES + 1):
+        if attempt:
+            time.sleep(PROVIDER_RETRY_DELAYS_SECONDS[attempt - 1])
+        observed_id = _production_alias_deployment_id(production_host, project_link)
+        observed_sha = None
+        if observed_id == expected_deployment_id:
+            for deployment in _deployment_list(project_link["projectId"]):
+                if deployment["uid"] == expected_deployment_id:
+                    observed_sha = deployment["gitSha"]
+                    break
+            if (
+                observed_sha == expected_sha
+                and _production_alias_deployment_id(production_host, project_link)
+                == expected_deployment_id
+            ):
+                return
+    raise DeployError(
+        "production identity did not converge to deployment "
+        f"{expected_deployment_id} at gitSha {expected_sha} after "
+        f"{MAX_PROVIDER_RETRIES} retries "
+        f"(found deployment {observed_id or 'missing'}, gitSha {observed_sha or 'missing'})"
+    )
+
+
 def _check(production_url: str) -> int:
     _validate_environment_binding()
     expected = _fetch_origin_main()
@@ -481,11 +524,10 @@ def _deploy() -> int:
         print("Staged production health check passed")
         _promote_staged_production(staged_url)
         print("Verified staged deployment promoted")
-        _wait_for_production_deployment(PRODUCTION_URL, staged_deployment_id)
-        _wait_for_production_sha(PRODUCTION_URL, sha)
+        _wait_for_production_identity(PRODUCTION_URL, staged_deployment_id, sha)
         _health_check(worktree)
         print("Production health check passed")
-        _wait_for_production_sha(PRODUCTION_URL, sha)
+        _wait_for_production_identity(PRODUCTION_URL, staged_deployment_id, sha)
         print(f"production is main: gitSha {sha}")
     return 0
 
