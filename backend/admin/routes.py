@@ -389,10 +389,12 @@ def create_routes(app: FastAPI):
         current = next((s for s in summaries if s["episode_id"] == current_id), None)
         recent = [s for s in summaries if s["episode_id"] != current_id][:_DASHBOARD_RECENT_EPISODES]
 
-        # The queue spans the full episode list, newest first, not just the cards shown.
+        # Needs attention is an operational queue, not a permanent archive.
+        # Once an ISO week ends, its record remains in Episode Log and recent
+        # cards but no longer asks Erik to act on last week's abandoned work.
         action_queue = [
             {**action, "episode_id": s["episode_id"], "title": s["title"]}
-            for s in summaries
+            for s in ([current] if current else [])
             for action in s["actions"]
         ]
 

@@ -3,10 +3,11 @@
 A fake in-memory store stands in for the storage singleton, so nothing reads
 Blob or the network. The fake list holds the current week plus six earlier
 weeks, and its photo control log is the real photo_review transitions' store.
-Only the current week and the four newest earlier weeks render as cards; the
-older weeks are off the cards but still actionable, so they must appear in
-Needs attention. Earlier week ids come from ``week_before`` (derived
-from each episode id, never the clock), so the test is date-stable.
+Only the current week and the four newest earlier weeks render as cards. Needs
+attention is operational, so it contains the current week only; completed and
+unfinished history remains inspectable through those cards and Episode Log.
+Earlier week ids come from ``week_before`` (derived from each episode id, never
+the clock), so the test is date-stable.
 """
 
 from __future__ import annotations
@@ -249,7 +250,7 @@ def _episodes() -> tuple[list[dict], dict[str, str]]:
     return episodes, ids
 
 
-def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_recent():
+def test_dashboard_queue_covers_current_week_while_cards_show_recent_history():
     episodes, ids = _episodes()
     current = episodes[0]
     store = FakeStore(episodes)
@@ -311,56 +312,36 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
         in body
     )
 
-    # (c) a recent failed week: its card says Failed, and a due-but-missing stage is queued.
+    # (c) a recent failed week remains visible as history, but it is not an
+    # active request for Erik after its ISO week has ended.
     assert f'Recent episode · {ids["failed"]} · <span class="font-semibold">Failed</span>' in body
-    assert "Failed: Recipe Dev →" in body
-    assert "Missing: Copywriting →" in body
-    assert f"Lemon Muffins · {ids['failed']}" in body
+    assert f"Lemon Muffins · {ids['failed']}" not in body
 
-    # (d) the fifth, older week is not a card but its action is in Needs attention,
-    # ahead of the cards and after the newer queue items (newest first).
+    # (d) older history is neither a recent card nor an active queue item.
     assert f"Recent episode · {ids['older']}" not in body
-    assert "Failed: Photography →" in body
-    older_label = body.index(f"Old Soup Muffins · {ids['older']}")
-    assert older_label < body.index("Current episode")
-    assert body.index("Missing: Copywriting →") < older_label
-    assert body.index("Failed: Photography →") < older_label
+    assert f"Old Soup Muffins · {ids['older']}" not in body
 
-    # (e) the sixth week holds for photo approval: its pending photo choice is queued,
-    # but its absent Sunday is a deliberate hold, so it gets no Missing: Publish action.
+    # (e) historical photo decisions and holds remain out of active attention.
     assert f"Recent episode · {ids['held']}" not in body
     held_items = [li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["held"] in li]
-    assert len(held_items) == 1
-    assert f'href="/admin/episodes/{ids["held"]}#photo-review"' in held_items[0]
-    assert "Pending photo choice" in held_items[0]
-    assert "Missing: Publish" not in held_items[0]
-    assert "Held Soup Muffins" in held_items[0]
+    assert held_items == []
 
-    # (f) a recent week with only due stages missing and no explicit failed stage
-    # has a card that says Failed, and each missing due stage is queued.
+    # (f) a recent incomplete week still has a truthful card, not queue actions.
     assert f'Recent episode · {ids["filler_b"]} · <span class="font-semibold">Failed</span>' in body
-    assert "Missing: Photography →" in body
-    assert "Missing: Publish →" in body
-    assert f"Corn Muffins · {ids['filler_b']}" in body
+    assert f"Corn Muffins · {ids['filler_b']}" not in body
 
-    # (g) an older rejected photo control: the reshoot-needed action is queued and
-    # blocks publication, and the held Sunday is not also a Missing: Publish.
+    # (g) an older rejected photo control remains historical.
     assert f"Recent episode · {ids['rejected']}" not in body
     rejected_items = [
         li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["rejected"] in li
     ]
-    assert len(rejected_items) == 1
-    assert f'href="/admin/episodes/{ids["rejected"]}#photo-review"' in rejected_items[0]
-    assert "Reshoot needed: photos rejected" in rejected_items[0]
-    assert "Missing: Publish" not in rejected_items[0]
-    assert "Rejected Soup Muffins" in rejected_items[0]
+    assert rejected_items == []
 
-    # (h) a recorded hold whose photos are now approved: Sunday needs a rerun.
+    # (h) a recorded historical hold whose photos were approved is archived too.
     approved_items = [
         li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["approved"] in li
     ]
-    assert len(approved_items) == 1
-    assert "Missing: Publish" in approved_items[0]
+    assert approved_items == []
 
     # (i) a published week never queues its historical failed or missing stages.
     assert "Maple Muffins" in body
