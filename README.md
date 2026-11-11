@@ -66,10 +66,13 @@ weekly pipeline.
 
 ## 💰 Vercel Cost Management
 
-Build Minutes are the dominant cost driver (~95% of usage charges at $0.126/min).
+Build CPU is the dominant Vercel cost driver. Every project uses the Basic
+two-vCPU build machine unless a measured build failure proves it needs more.
 
-Each `vercel deploy` and each `vercel promote` is a build, and both count against the
-5-deploys-per-day cap in [DEPLOYMENT.md](DEPLOYMENT.md).
+Muffin allows one remote build per release: the final reviewed `origin/main`
+commit is staged with production configuration, health-checked, and promoted
+without rebuilding. Work-in-progress previews stay local. See
+[DEPLOYMENT.md](DEPLOYMENT.md).
 
 **Disabled:** Speed Insights (was $0.65/period, not needed).
 
