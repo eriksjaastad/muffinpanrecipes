@@ -38,16 +38,25 @@ class FakeStore:
     transitions (register, decide) run unchanged against this log.
     """
 
-    def __init__(self, episodes: list[dict]) -> None:
-        self._episodes = episodes
+    def __init__(self, episodes: list[dict], *, test_episodes: list[dict] | None = None) -> None:
+        self._episodes = {"": episodes, "test/": test_episodes if test_episodes is not None else episodes}
+        self._prefix = ""
         self._control: dict[str, dict[int, dict]] = {}
 
     @contextmanager
     def prefix_scope(self, prefix: str):
-        yield
+        previous = self._prefix
+        self._prefix = prefix
+        try:
+            yield
+        finally:
+            self._prefix = previous
+
+    def namespaces_episodes(self) -> bool:
+        return True
 
     def list_episodes_strict(self) -> list[dict]:
-        return [dict(e) for e in self._episodes]
+        return [dict(e) for e in self._episodes[self._prefix]]
 
     def read_photo_control(self, episode_id: str):
         versions = self._control.get(episode_id)
@@ -356,3 +365,39 @@ def test_dashboard_queue_covers_all_episodes_while_cards_show_current_and_four_r
     # (i) a published week never queues its historical failed or missing stages.
     assert "Maple Muffins" in body
     assert not [li for li in re.findall(r"<li>(.*?)</li>", body, re.DOTALL) if ids["published"] in li]
+
+
+def test_production_admin_hides_leaked_e2e_records_but_test_namespace_lists_them():
+    """A root-level synthetic record cannot pollute real admin work (#incident)."""
+    real = _current_episode()
+    leaked = {
+        "episode_id": "test-e2e-006",
+        "created_at": "2026-11-11T12:00:00+00:00",
+        "stages": {
+            "monday": {"status": "complete", "recipe_data": {"title": "Synthetic Test"}},
+            "wednesday": {
+                "status": "complete",
+                "image_paths": ["src/assets/images/round-1/fake.png"],
+                "image_urls": ["https://blob.vercel-storage.com/placeholder/fake.png"],
+            },
+        },
+    }
+    store = FakeStore([leaked, real], test_episodes=[leaked])
+    app = FastAPI()
+    app.state.templates = Jinja2Templates(directory=str(TEMPLATES))
+    create_routes(app)
+    app.dependency_overrides[require_auth] = lambda: {"email": "admin@example.com"}
+
+    import backend.storage
+
+    with patch.object(backend.storage, "storage", store):
+        client = TestClient(app)
+        dashboard = client.get("/admin/")
+        production_list = client.get("/admin/episodes")
+        test_list = client.get("/admin/episodes?ns=test")
+
+    assert dashboard.status_code == production_list.status_code == test_list.status_code == 200
+    assert real["episode_id"] in dashboard.text and real["episode_id"] in production_list.text
+    assert leaked["episode_id"] not in dashboard.text
+    assert leaked["episode_id"] not in production_list.text
+    assert leaked["episode_id"] in test_list.text

@@ -256,6 +256,22 @@ def create_routes(app: FastAPI):
     
     _DASHBOARD_RECENT_EPISODES = 4
 
+    def _visible_admin_episodes(raw: list, *, production: bool) -> list[dict]:
+        """Return records that belong on the requested admin surface.
+
+        Production episodes are ISO weeks.  Synthetic E2E records live in the
+        explicit ``test/`` namespace; if one is accidentally written at the
+        production root, it must not become a real dashboard action or expose
+        its placeholder photo URLs.  Test-namespace browsing deliberately
+        keeps synthetic IDs visible so the E2E/admin workflow remains useful.
+        """
+        from backend.storage import is_valid_iso_week
+
+        rows = [data for data in raw if isinstance(data, dict)]
+        if not production:
+            return rows
+        return [data for data in rows if is_valid_iso_week(data.get("episode_id"))]
+
     def _dashboard_episode(data: dict) -> dict:
         """One dashboard card (#8604): title, Mon-Sun statuses, judge result, and the top actions.
 
@@ -363,7 +379,7 @@ def create_routes(app: FastAPI):
             raise HTTPException(status_code=503, detail="Could not list episodes from storage")
 
         episodes = sorted(
-            (d for d in raw if isinstance(d, dict)),
+            _visible_admin_episodes(raw, production=True),
             key=lambda d: (str(d.get("episode_id") or ""), str(d.get("created_at") or "")),
             reverse=True,
         )
@@ -1185,7 +1201,9 @@ def create_routes(app: FastAPI):
         except Exception as exc:
             logger.error(f"Episode list failed: {type(exc).__name__}: {exc}")
             raise HTTPException(status_code=503, detail="Could not list episodes from storage")
-        all_episodes = _load_episodes(raw)
+        all_episodes = _load_episodes(
+            _visible_admin_episodes(raw, production=not bool(prefix))
+        )
 
         # Sort newest-first by created_at
         all_episodes.sort(key=lambda e: e.get("created_at", ""), reverse=True)
