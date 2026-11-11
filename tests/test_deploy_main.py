@@ -618,6 +618,57 @@ def test_rest_promotion_is_credential_safe(monkeypatch):
     assert seen["timeout"] == 20
 
 
+def test_rest_promotion_rejects_http_failure_without_body(monkeypatch):
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(
+        deploy_main,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            deploy_main.HTTPError(
+                "https://api.vercel.com", 409, "conflict", {}, None
+            )
+        ),
+    )
+
+    with pytest.raises(deploy_main.DeployError, match="HTTP 409") as exc_info:
+        deploy_main._vercel_api_post("/promotion", {})
+
+    assert "conflict" not in str(exc_info.value)
+    assert "test-token" not in str(exc_info.value)
+
+
+def test_rest_promotion_rejects_transport_failure(monkeypatch):
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(
+        deploy_main,
+        "urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("secret body")),
+    )
+
+    with pytest.raises(deploy_main.DeployError, match="TimeoutError") as exc_info:
+        deploy_main._vercel_api_post("/promotion", {})
+
+    assert "secret body" not in str(exc_info.value)
+    assert "test-token" not in str(exc_info.value)
+
+
+def test_rest_promotion_rejects_unexpected_success_status(monkeypatch):
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+    monkeypatch.setenv("VERCEL_API_TOKEN", "test-token")
+    monkeypatch.setattr(deploy_main, "urlopen", lambda *_args, **_kwargs: Response())
+
+    with pytest.raises(deploy_main.DeployError, match="returned HTTP 200"):
+        deploy_main._vercel_api_post("/promotion", {})
+
+
 def test_environment_project_binding_allows_absent_or_matching_and_rejects_conflicts(monkeypatch):
     monkeypatch.delenv("VERCEL_PROJECT_ID", raising=False)
     monkeypatch.delenv("VERCEL_ORG_ID", raising=False)

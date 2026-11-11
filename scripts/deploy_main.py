@@ -12,9 +12,10 @@ fetched SHA. Deployment
 health gates are read-only: they pass ``--no-alert`` so an operator invocation
 cannot overwrite the shared monitor state or require alert-transport secrets.
 
-Vercel mutations use ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
-raw CLI output cannot expose an operations token. Deployment URL discovery and
-production SHA verification use allowlisted Vercel REST fields instead.
+The build mutation uses ``~/.openclaw/workspace/ops/vercel-safe-command.sh`` so
+raw CLI output cannot expose an operations token. Promotion uses Vercel's
+no-rebuild REST endpoint, and deployment discovery/provenance uses allowlisted
+REST fields; no REST response body is printed.
 Staged and production metadata each get at most three retries with 10, 20,
 and 40 second backoff (a bounded ~70 second observation window). After the
 promotion,
