@@ -18,11 +18,8 @@ still reports ten inherited findings in unchanged files. `git diff --check`
 passed.
 
 The branch removes 7,407 lines and adds 738, a net reduction of 6,669 lines.
-An acceptance scan found zero remaining hits under `scripts/`, `backend/`,
-`tests/`, and `docs/conversation-lab/` for `AUTHOR_MODE`,
-`_select_next_speaker`, `_DAY_LEADS`, `CHARACTER_DAY_GOALS`,
-`REWRITE_GUARDS`, `WORD_CAPS`, `STOP_CHECK`, `WINDDOWN_TRIGGER`,
-`OPEN_ENDED_MAX_TICKS`, and `HISTORY_DEPTH`.
+An acceptance scan found zero remaining repository hits for all ten exact
+card-named retired identifiers.
 
 ## Phase 3 — Adversarial network
 
