@@ -5545,6 +5545,15 @@ def _resolve_bench_scenario(
     concept = args.concept or _episode_concept(episode)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
     photo_inputs = _bench_photography_inputs(episode, args.stage)
+    if (
+        args.stage == "wednesday"
+        and not args.dry_run
+        and (not photo_inputs["image_paths"] or not photo_inputs["image_urls"])
+    ):
+        raise ConversationLabError(
+            f"episode {args.from_episode!r} has no authoritative Wednesday photo-review "
+            "candidates; refusing a paid bench whose author would receive no images"
+        )
     return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage), photo_inputs
 
 # Longest slugified --label allowed. The result filename is

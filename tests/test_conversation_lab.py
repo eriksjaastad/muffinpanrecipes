@@ -4201,6 +4201,60 @@ def test_bench_photo_input_type_guards_match_production_without_hiding_invalid_s
     }
 
 
+def test_paid_episode_wednesday_bench_rejects_missing_review_candidates_before_generation(
+    tmp_path, monkeypatch,
+):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {
+        "photography_data": {"winner": {"variant": "hero_threequarter"}},
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://example.invalid/hero.png"],
+        "photo_review": {"image_set_id": "stale-or-malformed"},
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    with pytest.raises(
+        cl.ConversationLabError,
+        match="no authoritative Wednesday photo-review candidates",
+    ):
+        cl.cmd_bench(_bench_args(
+            tmp_path,
+            stage="wednesday",
+            concept=None,
+            recipe_context=None,
+            from_episode="snapshot-week",
+        ))
+
+
+def test_dry_episode_wednesday_bench_can_probe_missing_review_candidates(
+    tmp_path, monkeypatch,
+):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {
+        "photography_data": {"winner": {"variant": "hero_threequarter"}},
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://example.invalid/hero.png"],
+        "photo_review": {"image_set_id": "stale-or-malformed"},
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("template", "d", "j"))
+
+    cl.cmd_bench(_bench_args(
+        tmp_path,
+        stage="wednesday",
+        concept=None,
+        recipe_context=None,
+        from_episode="snapshot-week",
+        dry_run=True,
+    ))
+
+    report = _read_bench(tmp_path, "wednesday-n3")
+    assert report["image_paths"] == []
+    assert report["image_urls"] == []
+
+
 def test_photo_comparison_uses_effective_rendered_inputs_not_audit_metadata():
     base = {"winner": {"variant": "hero_threequarter"}, "rounds": []}
     # These fields are retained in reports but do not affect the simulator's
@@ -4292,7 +4346,19 @@ def test_truthy_reshoot_changes_effective_wednesday_floor():
 
 def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypatch):
     episode = _snapshot_episode()
-    episode["stages"]["wednesday"] = {"photography_data": {"winner": "malformed"}}
+    episode["stages"]["wednesday"] = {
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
+        "photography_data": {
+            "winner": "malformed",
+            "rounds": [{
+                "round": 1,
+                "variants": [{"path": "hero.png", "variant": "hero_threequarter"}],
+            }],
+        },
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://store.public.blob.vercel-storage.com/images/hero.png"],
+    }
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     generated = []
@@ -4317,8 +4383,17 @@ def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypa
 def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):
     episode = _snapshot_episode()
     episode["stages"]["wednesday"] = {
-        "photography_data": {"winner": {"variant": "macro_closeup"}},
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
+        "photography_data": {
+            "winner": {"variant": "macro_closeup"},
+            "rounds": [{
+                "round": 1,
+                "variants": [{"path": "hero.png", "variant": "hero_threequarter"}],
+            }],
+        },
         "image_paths": ["hero.png"],
+        "image_urls": ["https://store.public.blob.vercel-storage.com/images/hero.png"],
     }
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", lambda **kwargs: {"messages": _messages("dry", 2)})
