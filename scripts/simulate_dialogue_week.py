@@ -340,21 +340,8 @@ def _author_candidate_images(
 
     images: list[bytes] = []
     for index, raw_path in enumerate(image_paths, 1):
-        path = Path(raw_path)
-        if not path.is_absolute():
-            path = ROOT / path
-        resolved = path.resolve()
-        if path.is_file() and not resolved.is_relative_to(ROOT.resolve()):
-            raise RuntimeError(f"Wednesday candidate image {index} has an untrusted local path")
-        if path.is_file():
-            if path.stat().st_size > _AUTHOR_IMAGE_MAX_BYTES:
-                raise RuntimeError(
-                    f"Wednesday candidate image {index} exceeds "
-                    f"{_AUTHOR_IMAGE_MAX_BYTES} bytes"
-                )
-            payload = path.read_bytes()
-        else:
-            url = urls[index - 1] if index <= len(urls) else ""
+        url = urls[index - 1] if index <= len(urls) else ""
+        if url:
             parsed = urlparse(url)
             if (
                 parsed.scheme != "https"
@@ -392,6 +379,21 @@ def _author_candidate_images(
                 payload = b"".join(chunks)
             finally:
                 response.close()
+        else:
+            path = Path(raw_path)
+            if not path.is_absolute():
+                path = ROOT / path
+            resolved = path.resolve()
+            if path.is_file() and not resolved.is_relative_to(ROOT.resolve()):
+                raise RuntimeError(f"Wednesday candidate image {index} has an untrusted local path")
+            if not path.is_file():
+                raise RuntimeError(f"Wednesday candidate image {index} has no readable trusted source")
+            if path.stat().st_size > _AUTHOR_IMAGE_MAX_BYTES:
+                raise RuntimeError(
+                    f"Wednesday candidate image {index} exceeds "
+                    f"{_AUTHOR_IMAGE_MAX_BYTES} bytes"
+                )
+            payload = path.read_bytes()
         if not payload or len(payload) > _AUTHOR_IMAGE_MAX_BYTES:
             raise RuntimeError(
                 f"Wednesday candidate image {index} is empty or exceeds {_AUTHOR_IMAGE_MAX_BYTES} bytes"

@@ -163,6 +163,43 @@ def test_wednesday_author_fetches_exact_review_urls_without_generating_images(mo
     assert len(calls) == 1, 'seeing images must not add a separate vision/model call'
 
 
+def test_wednesday_author_prefers_recorded_url_over_existing_local_path(monkeypatch, tmp_path):
+    local = tmp_path / 'candidate.png'
+    local.write_bytes(sim._PNG_SIGNATURE + b'local-stale-pixels')
+    remote = sim._PNG_SIGNATURE + b'recorded-review-pixels'
+
+    class Response:
+        headers = {'content-type': 'image/png'}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield remote
+
+        def close(self):
+            return None
+
+    requested = []
+    monkeypatch.setattr(
+        sim.requests,
+        'get',
+        lambda url, **kwargs: requested.append(url) or Response(),
+    )
+    calls = []
+    monkeypatch.setattr(
+        sim,
+        'generate_response',
+        lambda **kwargs: calls.append(kwargs) or _scene_for('wednesday'),
+    )
+    url = 'https://store.public.blob.vercel-storage.com/images/candidate.png'
+
+    run(stage_only='wednesday', image_paths=[str(local)], image_urls=[url])
+
+    assert requested == [url]
+    assert calls[0]['images'] == [remote]
+
+
 def test_wednesday_author_refuses_untrusted_or_misaligned_candidate_sources(monkeypatch):
     monkeypatch.setattr(sim, 'generate_response', lambda **kwargs: pytest.fail('model called'))
     with pytest.raises(RuntimeError, match='not aligned'):

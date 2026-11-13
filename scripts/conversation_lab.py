@@ -269,7 +269,7 @@ from backend.admin.cron_routes import (
     _judge_dialogue as judge_dialogue,
 )
 from backend.judge_rubric import CHARACTER_RULES, JUDGE_DIMENSIONS, JUDGE_SCORE_RANGE
-from backend.utils import model_router
+from backend.utils import model_router, photo_review
 from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
@@ -2537,25 +2537,28 @@ def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, 
         urls_source = "not_applicable"
     else:
         raw_paths = path_stage.get("image_paths", missing)
-        if isinstance(raw_paths, list):
-            image_paths = copy.deepcopy(raw_paths)
-            paths_source = "present"
-        elif raw_paths is missing or raw_paths is None:
-            image_paths = []
-            paths_source = "missing"
-        else:
-            image_paths = []
-            paths_source = f"invalid:{type(raw_paths).__name__}"
         raw_urls = path_stage.get("image_urls", missing)
-        if isinstance(raw_urls, list):
-            image_urls = copy.deepcopy(raw_urls)
-            urls_source = "present"
-        elif raw_urls is missing or raw_urls is None:
-            image_urls = []
-            urls_source = "missing"
+        request = photo_review.episode_request(episode)
+        candidates = (request or {}).get("candidates") or []
+        if candidates:
+            # Production gives the author the authoritative review request,
+            # not the stage's raw upload arrays. The request filters failed
+            # uploads and preserves the exact order shown to the reviewer.
+            image_paths = [copy.deepcopy(candidate["path"]) for candidate in candidates]
+            image_urls = [copy.deepcopy(candidate["url"]) for candidate in candidates]
+            paths_source = "photo_review_request"
+            urls_source = "photo_review_request"
         else:
+            image_paths = []
             image_urls = []
-            urls_source = f"invalid:{type(raw_urls).__name__}"
+            if not isinstance(raw_paths, list) and raw_paths is not missing and raw_paths is not None:
+                paths_source = f"invalid:{type(raw_paths).__name__}"
+            else:
+                paths_source = "missing"
+            if not isinstance(raw_urls, list) and raw_urls is not missing and raw_urls is not None:
+                urls_source = f"invalid:{type(raw_urls).__name__}"
+            else:
+                urls_source = "missing"
 
     return {
         "photography_context": photography_context,

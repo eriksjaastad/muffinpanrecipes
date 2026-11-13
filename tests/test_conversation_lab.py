@@ -4042,15 +4042,29 @@ def test_bench_from_episode_builds_the_recipe_anchor_for_its_stage(tmp_path, mon
 @pytest.mark.parametrize("reshoot_happened", [False, True])
 def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monkeypatch, reshoot_happened):
     episode = _snapshot_episode()
+    variants = [
+        {"variant": "macro_closeup", "path": "src/assets/images/spiral/round_1/macro.png"},
+        {"variant": "hero_threequarter", "path": "src/assets/images/spiral/round_1/hero.png"},
+        {"variant": "overhead_flatlay", "path": "src/assets/images/spiral/round_1/overhead.png"},
+    ]
     photo_data = {
         "reshoot_happened": reshoot_happened,
         "winner": {"variant": "hero_threequarter", "round": 2 if reshoot_happened else 1},
-        "rounds": [{"variants": [{"variant": "macro_closeup"}]}],
+        "rounds": [{"round": 1, "variants": variants}],
         "selected_shots": ["legacy-selected-shot"],
     }
-    image_paths = ["hero.png", "overhead.png", "detail.png"]
-    image_urls = [f"https://store.public.blob.vercel-storage.com/{name}" for name in image_paths]
+    # Raw stage arrays are deliberately in a different order and include a
+    # supported failed upload. The bench must match the review request that
+    # production passes to the author: successful candidates in round order.
+    image_paths = [variants[1]["path"], variants[0]["path"], variants[2]["path"]]
+    image_urls = [
+        "https://store.public.blob.vercel-storage.com/images/hero.png",
+        "https://store.public.blob.vercel-storage.com/images/macro.png",
+        "",
+    ]
     episode["stages"]["wednesday"] = {
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
         "photography_data": photo_data,
         "image_paths": image_paths,
         "image_urls": image_urls,
@@ -4092,19 +4106,23 @@ def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monke
     assert len(received_contexts) == len(received_paths) == len(received_urls) == 2
     assert context_refs[0] is not context_refs[1]
     assert path_refs[0] is not path_refs[1]
+    expected_paths = [variants[0]["path"], variants[1]["path"]]
+    expected_urls = [image_urls[1], image_urls[0]]
     for context, paths, urls in zip(received_contexts, received_paths, received_urls):
         assert context["reshoot_happened"] is reshoot_happened
         assert context["winner"]["round"] == photo_data["winner"]["round"]
         assert context["rounds"][0]["variants"][0]["variant"] == "macro_closeup"
-        assert paths == image_paths
-        assert urls == image_urls
+        assert paths == expected_paths
+        assert urls == expected_urls
     assert episode["stages"]["wednesday"]["photography_data"] == photo_data
     assert episode["stages"]["wednesday"]["image_paths"] == image_paths
     assert report["photography_context"] == photo_data
-    assert report["image_paths"] == image_paths
-    assert report["image_urls"] == image_urls
+    assert report["image_paths"] == expected_paths
+    assert report["image_urls"] == expected_urls
     assert report["photography_input_sources"] == {
-        "photography_context": "present", "image_paths": "present", "image_urls": "present"
+        "photography_context": "present",
+        "image_paths": "photo_review_request",
+        "image_urls": "photo_review_request",
     }
 
 
