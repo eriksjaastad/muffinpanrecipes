@@ -76,5 +76,39 @@ def test_successful_simulation_still_completes_the_stage():
     notify_failure.assert_not_called()
 
 
+def test_dry_run_uses_template_dialogue_without_loading_placeholder_pixels():
+    episode = {
+        "episode_id": "2026-W18",
+        "recipe_id": "abcd1234",
+        "concept": "Hash brown cups",
+        "stages": {"monday": {"status": "complete", "recipe_data": {"title": "Hash Brown Cups"}}},
+        "events": [],
+    }
+    simulation = MagicMock(return_value={"messages": [
+        {"character": "Julian", "message": "Dry-run composition."},
+    ]})
+    argv = [
+        "run_pipeline_stage.py", "--stage", "wednesday", "--episode", "2026-W18",
+        "--concept", "Hash brown cups", "--dry-run",
+    ]
+    orchestrator = MagicMock()
+
+    with patch.object(rps, "load_episode", return_value=episode), \
+         patch.object(rps, "RecipeOrchestrator", return_value=orchestrator), \
+         patch.object(rps, "_bootstrap_orchestrator"), \
+         patch.object(rps, "run_simulation", simulation), \
+         patch.object(rps, "save_episode"), \
+         patch.object(rps, "notify_pipeline_failure"), \
+         patch.object(rps, "notify_recipe_ready"), \
+         patch.object(sys, "argv", argv):
+        rps.main()
+
+    assert simulation.call_args.kwargs["mode"] == "template"
+    assert simulation.call_args.kwargs["image_paths"] == [
+        "placeholder_1.png", "placeholder_2.png", "placeholder_3.png",
+    ]
+    orchestrator._execute_stage_photography.assert_not_called()
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__]))

@@ -82,6 +82,7 @@ def _generate_stage_dialogue(
     concept: str,
     image_paths: list[str] | None = None,
     photography_context: dict | None = None,
+    mode: str = "llm",
 ) -> list[dict]:
     """Run the dialogue simulator for a single stage and return messages list.
 
@@ -97,7 +98,7 @@ def _generate_stage_dialogue(
         stage_only=stage,
         injected_event=None,
         ticks_per_day=0,       # 0 = use variable TICKS_RANGE per day (natural variation)
-        mode="llm",
+        mode=mode,
         prompt_style="scene",
         character_models=None,
         image_paths=image_paths or [],
@@ -268,6 +269,7 @@ def main() -> None:
             concept,
             image_paths=stage_image_paths if stage_key == "wednesday" else None,
             photography_context=photo_ctx,
+            mode="template" if dry_run else "llm",
         )
         if dialogue_messages:
             stage_entry["dialogue"] = dialogue_messages

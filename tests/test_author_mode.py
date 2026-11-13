@@ -200,6 +200,26 @@ def test_wednesday_author_prefers_recorded_url_over_existing_local_path(monkeypa
     assert calls[0]['images'] == [remote]
 
 
+def test_wednesday_author_uses_matching_filesystem_url_without_network(monkeypatch, tmp_path):
+    relative = 'assets/images/current/candidate.png'
+    local = tmp_path / relative
+    local.parent.mkdir(parents=True)
+    payload = sim._PNG_SIGNATURE + b'filesystem-pixels'
+    local.write_bytes(payload)
+    monkeypatch.setattr(sim, 'ROOT', tmp_path)
+    monkeypatch.setattr(sim.requests, 'get', lambda *a, **k: pytest.fail('network fetch'))
+    calls = []
+    monkeypatch.setattr(
+        sim,
+        'generate_response',
+        lambda **kwargs: calls.append(kwargs) or _scene_for('wednesday'),
+    )
+
+    run(stage_only='wednesday', image_paths=[relative], image_urls=['/' + relative])
+
+    assert calls[0]['images'] == [payload]
+
+
 def test_wednesday_author_refuses_untrusted_or_misaligned_candidate_sources(monkeypatch):
     monkeypatch.setattr(sim, 'generate_response', lambda **kwargs: pytest.fail('model called'))
     with pytest.raises(RuntimeError, match='not aligned'):

@@ -341,10 +341,19 @@ def _author_candidate_images(
     images: list[bytes] = []
     for index, raw_path in enumerate(image_paths, 1):
         url = urls[index - 1] if index <= len(urls) else ""
-        if url:
-            parsed = urlparse(url)
+        parsed = urlparse(url) if url else None
+        local_url = bool(
+            parsed
+            and not parsed.scheme
+            and not parsed.netloc
+            and not parsed.query
+            and not parsed.fragment
+            and parsed.path == "/" + str(raw_path).lstrip("/")
+        )
+        if url and not local_url:
             if (
-                parsed.scheme != "https"
+                parsed is None
+                or parsed.scheme != "https"
                 or not parsed.hostname
                 or not parsed.hostname.endswith(".public.blob.vercel-storage.com")
             ):
