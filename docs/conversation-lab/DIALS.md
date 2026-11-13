@@ -6,6 +6,15 @@ Card #6492. Branch feat/6492-conversation-lab. Written 2026-09-06 from the W11-W
 
 Six specific people talking about a real recipe. A reader can name the speaker with the names covered. Someone is sometimes wrong, tired, or short. A disagreement lands, gets answered with a reason, and resolves because of the reason. Nobody recites the brand; when the pan matters, a character notices it because of something in front of them.
 
+### Wednesday image contract
+
+The whole-scene Wednesday author sees the exact current photo-review candidate
+pixels, ordered Image 1..N, in its existing OpenRouter author request. Structured
+photography/vision metadata remains supplemental context; it is not a substitute
+for the images. Episode-backed paid benches reuse the stored `image_urls` and
+must treat a changed candidate URL set as a scenario mismatch. Template/dry-run
+benches do not fetch or generate images and make zero provider calls.
+
 ### What good sounded like
 
 W25 Thu:

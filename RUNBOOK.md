@@ -58,6 +58,16 @@ so the page, Sunday's hold record and the published episode always show the
 evaluation of the photos actually under review; a request without one shows
 "automated review ... not available" rather than another set's.
 
+**Wednesday dialogue sees the current candidate pixels.** The whole-scene
+author receives the photo-review candidates, in review order, as image inputs
+on the same OpenRouter dialogue request. This is not a second vision call and
+does not generate new images. A live conversation test reuses the episode's
+stored Blob images; template/dry-run tests make zero provider calls and do not
+fetch pixels. The normal bounded Wednesday image-generation path remains
+separate and continues to use the configured OpenRouter image model. If the
+candidate paths/URLs are misaligned, untrusted, missing, or non-images,
+Wednesday fails rather than writing dialogue that pretends it saw the set.
+
 States: `awaiting` → `approved`/`rejected` (Erik) → `claimed` (Sunday, before
 any paid step) → `publishing` (just before the save that publishes) →
 `published`. From `claimed` on, choices are frozen: the page says "Publishing is

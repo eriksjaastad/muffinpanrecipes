@@ -95,3 +95,22 @@ def test_friday_passes_authoritative_decision_to_actual_prompt(state, mirror):
         assert "rejected" in arc.lower()
     else:
         assert "macro_closeup" in arc
+
+
+def test_wednesday_author_uses_exact_reviewable_candidate_set_not_raw_stage_arrays(monkeypatch):
+    wed = wednesday_stage()
+    # A failed non-hero upload stays in the stage audit arrays but is not a
+    # review candidate because it has no public pixels.
+    wed["image_paths"].append("src/assets/images/failed.png")
+    wed["image_urls"].append("")
+    ep = _episode(wed)
+    store = _Store()
+    register(EP_ID, wed, store)
+
+    monkeypatch.setattr(cron_routes, "storage", store)
+    context, paths, urls = cron_routes._photo_review_author_inputs(EP_ID, ep)
+
+    assert context == {"status": "awaiting", "selected_variant": None}
+    assert paths == [candidate["path"] for candidate in photo_review.read_view(store, EP_ID, ep).request["candidates"]]
+    assert urls == [candidate["url"] for candidate in photo_review.read_view(store, EP_ID, ep).request["candidates"]]
+    assert "src/assets/images/failed.png" not in paths

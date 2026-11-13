@@ -269,7 +269,7 @@ from backend.admin.cron_routes import (
     _judge_dialogue as judge_dialogue,
 )
 from backend.judge_rubric import CHARACTER_RULES, JUDGE_DIMENSIONS, JUDGE_SCORE_RANGE
-from backend.utils import model_router
+from backend.utils import model_router, photo_review
 from backend.utils import stop_check
 from backend.utils.episode_integrity import PLACEHOLDER_CONCEPT, _recipe_title
 from scripts.conversation_metrics import summarize
@@ -1703,6 +1703,7 @@ def _run_arm(
     default_model: str,
     photography_context: dict[str, Any] | None = None,
     image_paths: list[Any] | None = None,
+    image_urls: list[Any] | None = None,
     prior_lines: list[str] | None = None,
     message_sink: list | None = None,
     recipe_facts: str | None = None,
@@ -1747,6 +1748,7 @@ def _run_arm(
         prompt_style="scene",
         character_models=None,
         image_paths=copy.deepcopy(image_paths) if image_paths is not None else [],
+        image_urls=copy.deepcopy(image_urls) if image_urls is not None else [],
         photography_context=copy.deepcopy(photography_context),
         recipe_context=recipe_context,
         recipe_facts=recipe_facts,
@@ -2506,7 +2508,12 @@ def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, 
         return {
             "photography_context": None,
             "image_paths": [],
-            "sources": {"photography_context": "not_applicable", "image_paths": "not_applicable"},
+            "image_urls": [],
+            "sources": {
+                "photography_context": "not_applicable",
+                "image_paths": "not_applicable",
+                "image_urls": "not_applicable",
+            },
         }
 
     missing = object()
@@ -2525,23 +2532,43 @@ def _bench_photography_inputs(episode: dict[str, Any], stage: str) -> dict[str, 
 
     if not paths_applicable:
         image_paths: list[Any] = []
+        image_urls: list[Any] = []
         paths_source = "not_applicable"
+        urls_source = "not_applicable"
     else:
         raw_paths = path_stage.get("image_paths", missing)
-        if isinstance(raw_paths, list):
-            image_paths = copy.deepcopy(raw_paths)
-            paths_source = "present"
-        elif raw_paths is missing or raw_paths is None:
-            image_paths = []
-            paths_source = "missing"
+        raw_urls = path_stage.get("image_urls", missing)
+        request = photo_review.episode_request(episode)
+        candidates = (request or {}).get("candidates") or []
+        if candidates:
+            # Production gives the author the authoritative review request,
+            # not the stage's raw upload arrays. The request filters failed
+            # uploads and preserves the exact order shown to the reviewer.
+            image_paths = [copy.deepcopy(candidate["path"]) for candidate in candidates]
+            image_urls = [copy.deepcopy(candidate["url"]) for candidate in candidates]
+            paths_source = "photo_review_request"
+            urls_source = "photo_review_request"
         else:
             image_paths = []
-            paths_source = f"invalid:{type(raw_paths).__name__}"
+            image_urls = []
+            if not isinstance(raw_paths, list) and raw_paths is not missing and raw_paths is not None:
+                paths_source = f"invalid:{type(raw_paths).__name__}"
+            else:
+                paths_source = "missing"
+            if not isinstance(raw_urls, list) and raw_urls is not missing and raw_urls is not None:
+                urls_source = f"invalid:{type(raw_urls).__name__}"
+            else:
+                urls_source = "missing"
 
     return {
         "photography_context": photography_context,
         "image_paths": image_paths,
-        "sources": {"photography_context": context_source, "image_paths": paths_source},
+        "image_urls": image_urls,
+        "sources": {
+            "photography_context": context_source,
+            "image_paths": paths_source,
+            "image_urls": urls_source,
+        },
     }
 
 
@@ -5518,6 +5545,15 @@ def _resolve_bench_scenario(
     concept = args.concept or _episode_concept(episode)
     recipe_facts = _build_judge_recipe_facts(recipe_data) or None
     photo_inputs = _bench_photography_inputs(episode, args.stage)
+    if (
+        args.stage == "wednesday"
+        and not args.dry_run
+        and (not photo_inputs["image_paths"] or not photo_inputs["image_urls"])
+    ):
+        raise ConversationLabError(
+            f"episode {args.from_episode!r} has no authoritative Wednesday photo-review "
+            "candidates; refusing a paid bench whose author would receive no images"
+        )
     return concept, recipe_context, recipe_facts, _frozen_prior_stages(episode, args.stage), photo_inputs
 
 # Longest slugified --label allowed. The result filename is
@@ -5841,6 +5877,8 @@ _BENCH_SCENARIO_FIELDS = (
     "judged_against_prior_days",
     "judge_input_digest",
     "effective_photography_inputs",
+    "image_paths",
+    "image_urls",
     "models",
 )
 
@@ -5915,6 +5953,16 @@ def _assert_comparable_scenario(baseline: dict[str, Any], report: dict[str, Any]
                 report.get("stage"), report.get("concept"),
                 report.get("photography_context"),
             )
+        elif field in {"image_paths", "image_urls"}:
+            # Old no-photo reports omitted these keys. Empty and absent have
+            # the same simulator effect, while a real candidate-set change is
+            # now material because the Wednesday author sees the pixels.
+            # Other stages do not receive images; their gallery metadata is
+            # therefore irrelevant to a conversation comparison.
+            if baseline.get("stage") == report.get("stage") == "wednesday":
+                theirs, ours = baseline.get(field) or [], report.get(field) or []
+            else:
+                theirs = ours = []
         else:
             theirs, ours = baseline.get(field), report.get(field)
         if theirs != ours:
@@ -5957,6 +6005,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
         "judge_input_digest": _judge_input_digest(prior_stages, recipe_facts, expected_cast),
         "photography_context": photo_inputs["photography_context"],
         "image_paths": photo_inputs["image_paths"],
+        "image_urls": photo_inputs["image_urls"],
         "photography_input_sources": photo_inputs["sources"],
         "effective_photography_inputs": _effective_bench_photography_inputs(
             args.stage, concept, photo_inputs["photography_context"]
@@ -6055,6 +6104,7 @@ def cmd_bench(args: argparse.Namespace) -> None:
                     default_model,
                     photography_context=photo_inputs["photography_context"],
                     image_paths=photo_inputs["image_paths"],
+                    image_urls=photo_inputs["image_urls"],
                     message_sink=sink,
                     recipe_facts=recipe_facts,
                 ),

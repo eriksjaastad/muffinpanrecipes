@@ -4042,21 +4042,38 @@ def test_bench_from_episode_builds_the_recipe_anchor_for_its_stage(tmp_path, mon
 @pytest.mark.parametrize("reshoot_happened", [False, True])
 def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monkeypatch, reshoot_happened):
     episode = _snapshot_episode()
+    variants = [
+        {"variant": "macro_closeup", "path": "src/assets/images/spiral/round_1/macro.png"},
+        {"variant": "hero_threequarter", "path": "src/assets/images/spiral/round_1/hero.png"},
+        {"variant": "overhead_flatlay", "path": "src/assets/images/spiral/round_1/overhead.png"},
+    ]
     photo_data = {
         "reshoot_happened": reshoot_happened,
         "winner": {"variant": "hero_threequarter", "round": 2 if reshoot_happened else 1},
-        "rounds": [{"variants": [{"variant": "macro_closeup"}]}],
+        "rounds": [{"round": 1, "variants": variants}],
         "selected_shots": ["legacy-selected-shot"],
     }
-    image_paths = ["hero.png", "overhead.png", "detail.png"]
+    # Raw stage arrays are deliberately in a different order and include a
+    # supported failed upload. The bench must match the review request that
+    # production passes to the author: successful candidates in round order.
+    image_paths = [variants[1]["path"], variants[0]["path"], variants[2]["path"]]
+    image_urls = [
+        "https://store.public.blob.vercel-storage.com/images/hero.png",
+        "https://store.public.blob.vercel-storage.com/images/macro.png",
+        "",
+    ]
     episode["stages"]["wednesday"] = {
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
         "photography_data": photo_data,
         "image_paths": image_paths,
+        "image_urls": image_urls,
         "dialogue": _messages("wed", count=2),
     }
     received_contexts = []
     context_refs = []
     received_paths = []
+    received_urls = []
     path_refs = []
 
     def fake_simulation(**kwargs):
@@ -4064,9 +4081,11 @@ def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monke
         path_refs.append(kwargs["image_paths"])
         received_contexts.append(copy.deepcopy(kwargs["photography_context"]))
         received_paths.append(copy.deepcopy(kwargs["image_paths"]))
+        received_urls.append(copy.deepcopy(kwargs["image_urls"]))
         # Mutation in one arm must not affect the frozen scenario or the next arm.
         kwargs["photography_context"]["rounds"][0]["variants"][0]["variant"] = "mutated"
         kwargs["image_paths"].append("mutated.png")
+        kwargs["image_urls"].append("https://mutated.invalid")
         return {"messages": _messages("generated", count=5)}
 
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
@@ -4084,20 +4103,26 @@ def test_bench_wednesday_passes_frozen_photo_inputs_to_every_run(tmp_path, monke
     ))
 
     report = _read_bench(tmp_path, "wednesday-n2")
-    assert len(received_contexts) == len(received_paths) == 2
+    assert len(received_contexts) == len(received_paths) == len(received_urls) == 2
     assert context_refs[0] is not context_refs[1]
     assert path_refs[0] is not path_refs[1]
-    for context, paths in zip(received_contexts, received_paths):
+    expected_paths = [variants[0]["path"], variants[1]["path"]]
+    expected_urls = [image_urls[1], image_urls[0]]
+    for context, paths, urls in zip(received_contexts, received_paths, received_urls):
         assert context["reshoot_happened"] is reshoot_happened
         assert context["winner"]["round"] == photo_data["winner"]["round"]
         assert context["rounds"][0]["variants"][0]["variant"] == "macro_closeup"
-        assert paths == image_paths
+        assert paths == expected_paths
+        assert urls == expected_urls
     assert episode["stages"]["wednesday"]["photography_data"] == photo_data
     assert episode["stages"]["wednesday"]["image_paths"] == image_paths
     assert report["photography_context"] == photo_data
-    assert report["image_paths"] == image_paths
+    assert report["image_paths"] == expected_paths
+    assert report["image_urls"] == expected_urls
     assert report["photography_input_sources"] == {
-        "photography_context": "present", "image_paths": "present"
+        "photography_context": "present",
+        "image_paths": "photo_review_request",
+        "image_urls": "photo_review_request",
     }
 
 
@@ -4146,27 +4171,88 @@ def test_bench_friday_reuses_wednesday_photo_context_without_image_paths(tmp_pat
     assert report["photography_context"] == photo_data
     assert report["image_paths"] == []
     assert report["photography_input_sources"]["image_paths"] == "not_applicable"
+    assert report["photography_input_sources"]["image_urls"] == "not_applicable"
 
 
 def test_bench_photo_input_type_guards_match_production_without_hiding_invalid_sources():
     malformed = {
         "stages": {
-            "wednesday": {"photography_data": "not-a-dict", "image_paths": "not-a-list"}
+            "wednesday": {
+                "photography_data": "not-a-dict",
+                "image_paths": "not-a-list",
+                "image_urls": "not-a-list",
+            }
         }
     }
     inputs = cl._bench_photography_inputs(malformed, "wednesday")
     assert inputs["photography_context"] is None
     assert inputs["image_paths"] == []
+    assert inputs["image_urls"] == []
     assert inputs["sources"] == {
-        "photography_context": "invalid:str", "image_paths": "invalid:str"
+        "photography_context": "invalid:str", "image_paths": "invalid:str", "image_urls": "invalid:str"
     }
 
     missing = cl._bench_photography_inputs({"stages": {}}, "wednesday")
     assert missing["photography_context"] is None
     assert missing["image_paths"] == []
+    assert missing["image_urls"] == []
     assert missing["sources"] == {
-        "photography_context": "missing", "image_paths": "missing"
+        "photography_context": "missing", "image_paths": "missing", "image_urls": "missing"
     }
+
+
+def test_paid_episode_wednesday_bench_rejects_missing_review_candidates_before_generation(
+    tmp_path, monkeypatch,
+):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {
+        "photography_data": {"winner": {"variant": "hero_threequarter"}},
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://example.invalid/hero.png"],
+        "photo_review": {"image_set_id": "stale-or-malformed"},
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
+    monkeypatch.setattr(sdw, "run_simulation", _fail_generation)
+
+    with pytest.raises(
+        cl.ConversationLabError,
+        match="no authoritative Wednesday photo-review candidates",
+    ):
+        cl.cmd_bench(_bench_args(
+            tmp_path,
+            stage="wednesday",
+            concept=None,
+            recipe_context=None,
+            from_episode="snapshot-week",
+        ))
+
+
+def test_dry_episode_wednesday_bench_can_probe_missing_review_candidates(
+    tmp_path, monkeypatch,
+):
+    episode = _snapshot_episode()
+    episode["stages"]["wednesday"] = {
+        "photography_data": {"winner": {"variant": "hero_threequarter"}},
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://example.invalid/hero.png"],
+        "photo_review": {"image_set_id": "stale-or-malformed"},
+    }
+    monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
+    monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("template", "d", "j"))
+
+    cl.cmd_bench(_bench_args(
+        tmp_path,
+        stage="wednesday",
+        concept=None,
+        recipe_context=None,
+        from_episode="snapshot-week",
+        dry_run=True,
+    ))
+
+    report = _read_bench(tmp_path, "wednesday-n3")
+    assert report["image_paths"] == []
+    assert report["image_urls"] == []
 
 
 def test_photo_comparison_uses_effective_rendered_inputs_not_audit_metadata():
@@ -4260,7 +4346,19 @@ def test_truthy_reshoot_changes_effective_wednesday_floor():
 
 def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypatch):
     episode = _snapshot_episode()
-    episode["stages"]["wednesday"] = {"photography_data": {"winner": "malformed"}}
+    episode["stages"]["wednesday"] = {
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
+        "photography_data": {
+            "winner": "malformed",
+            "rounds": [{
+                "round": 1,
+                "variants": [{"path": "hero.png", "variant": "hero_threequarter"}],
+            }],
+        },
+        "image_paths": ["hero.png"],
+        "image_urls": ["https://store.public.blob.vercel-storage.com/images/hero.png"],
+    }
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(cl, "_resolve_models_for_args", lambda args: ("openai", "d", "j"))
     generated = []
@@ -4285,8 +4383,17 @@ def test_invalid_effective_photo_data_fails_before_generation(tmp_path, monkeypa
 def test_bench_photo_baseline_mismatch_is_rejected_before_generation(tmp_path, monkeypatch):
     episode = _snapshot_episode()
     episode["stages"]["wednesday"] = {
-        "photography_data": {"winner": {"variant": "macro_closeup"}},
+        "status": "complete",
+        "completed_at": "2026-11-12T12:00:00+00:00",
+        "photography_data": {
+            "winner": {"variant": "macro_closeup"},
+            "rounds": [{
+                "round": 1,
+                "variants": [{"path": "hero.png", "variant": "hero_threequarter"}],
+            }],
+        },
         "image_paths": ["hero.png"],
+        "image_urls": ["https://store.public.blob.vercel-storage.com/images/hero.png"],
     }
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: episode)
     monkeypatch.setattr(sdw, "run_simulation", lambda **kwargs: {"messages": _messages("dry", 2)})
@@ -4358,6 +4465,21 @@ def test_legacy_no_photo_baseline_remains_comparable_for_manual_scenario():
         },
     }
     cl._assert_comparable_scenario({"stage": "wednesday"}, malformed_wednesday)
+
+
+def test_bench_comparison_refuses_changed_candidate_pixels():
+    base = {
+        "stage": "wednesday",
+        "concept": "Spiral Bites",
+        "image_paths": ["images/hero.png"],
+        "image_urls": ["https://store.public.blob.vercel-storage.com/first.png"],
+    }
+    changed = {
+        **base,
+        "image_urls": ["https://store.public.blob.vercel-storage.com/replacement.png"],
+    }
+    with pytest.raises(cl.ConversationLabError, match="image_urls"):
+        cl._assert_comparable_scenario(base, changed)
 
 def test_bench_from_episode_fails_loud_when_the_recipe_data_is_unusable(tmp_path, monkeypatch):
     monkeypatch.setattr(cl, "_load_episode", lambda *a, **k: {"episode_id": "empty", "stages": {}})
