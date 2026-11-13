@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from backend.admin import cron_routes
 from scripts import conversation_lab as lab
 from scripts import simulate_dialogue_week as sim
 
@@ -70,6 +71,9 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
     assert sim._parse_author_scene('Margaret: "Bake until set (looks firm at the edge)."', names) == [
         ('Margaret Chen', 'Bake until set (looks firm at the edge).')
     ]
+    assert sim._parse_author_scene('Margaret: "Macro—then overhead. It’s final."', names) == [
+        ('Margaret Chen', "Macro - then overhead. It's final.")
+    ]
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
     monkeypatch.setattr(sim, 'generate_response', lambda **k: 'Devon: Off roster.')
     monkeypatch.setattr(sim, 'generate_turn', lambda **k: pytest.fail('fallback called'))
@@ -77,19 +81,25 @@ def test_author_parser_fails_loudly_for_bad_scene_without_fallback(monkeypatch):
         run()
     assert failed.value.author_invalid_scene == 'Devon: Off roster.'
 
-def test_author_full_week_carries_lines_and_finishes_wednesday_photography(monkeypatch):
-    prompts, calls = [], []
+def test_author_full_week_carries_lines_and_finishes_wednesday_photography(monkeypatch, tmp_path):
+    prompts, calls, image_inputs = [], [], []
     def generate(**kwargs):
         prompts.append(kwargs['prompt'])
+        image_inputs.append(kwargs.get('images'))
         day = sim.DAY_ORDER[len(prompts) - 1]
         name = sim.participants_for_day(day)[0].split()[0]
         return '\n'.join([f'{name}: "{day} stays unresolved."'] * (3 if day == 'wednesday' else 2))
 
     monkeypatch.setattr(sim, 'AUTHOR_MODE', True)
+    monkeypatch.setattr(sim, 'ROOT', tmp_path)
     monkeypatch.setattr(sim, 'generate_response', generate)
     monkeypatch.setattr(sim, '_generate_day_highlights', lambda **k: pytest.fail('unexpected highlight call'))
     monkeypatch.setattr(sim, '_generate_episode_memories', lambda *a, **k: calls.append(a[1]))
-    photos = ['one.png', 'two.png', 'three.png']
+    photos = []
+    for name in ('one.png', 'two.png', 'three.png'):
+        path = tmp_path / name
+        path.write_bytes(sim._PNG_SIGNATURE + name.encode())
+        photos.append(str(path))
     result = run(stage_only=None, mode='llm', image_paths=photos,
                  photography_context={'winner_variant': 'crispy edge'})
 
@@ -97,9 +107,102 @@ def test_author_full_week_carries_lines_and_finishes_wednesday_photography(monke
     assert 'monday stays unresolved' in prompts[1].lower()
     assert 'tuesday stays unresolved' in prompts[2].lower()
     assert 'crispy edge' in prompts[2]
+    assert 'Attached candidate images: 3' in prompts[2]
+    assert image_inputs[2] == [
+        sim._PNG_SIGNATURE + b'one.png',
+        sim._PNG_SIGNATURE + b'two.png',
+        sim._PNG_SIGNATURE + b'three.png',
+    ]
+    assert all(images is None for i, images in enumerate(image_inputs) if i != 2)
     assert all(any(photo in m['attachments'] for m in result['messages']) for photo in photos)
     assert calls == ['Custard Cups']
     assert {m['day'] for m in result['messages']} == set(sim.DAY_ORDER)
+
+
+def test_wednesday_author_fetches_exact_review_urls_without_generating_images(monkeypatch):
+    requested = []
+    payloads = {f'https://store.public.blob.vercel-storage.com/{n}.png': sim._PNG_SIGNATURE + n.encode()
+                for n in ('hero', 'overhead', 'detail')}
+
+    class Response:
+        def __init__(self, body):
+            self.body = body
+            self.headers = {'content-type': 'image/png'}
+
+        def raise_for_status(self):
+            return None
+
+        def iter_content(self, chunk_size):
+            yield self.body
+
+        def close(self):
+            return None
+
+    def fetch(url, **kwargs):
+        requested.append((url, kwargs))
+        return Response(payloads[url])
+
+    calls = []
+    monkeypatch.setattr(sim.requests, 'get', fetch)
+    monkeypatch.setattr(
+        sim,
+        'generate_response',
+        lambda **kwargs: calls.append(kwargs) or _scene_for('wednesday'),
+    )
+    urls = list(payloads)
+    paths = ['images/current/hero.png', 'images/current/overhead.png', 'images/current/detail.png']
+    run(stage_only='wednesday', image_paths=paths, image_urls=urls,
+        photography_context={'human_review': {'state': 'awaiting'}})
+
+    assert [url for url, _ in requested] == urls
+    assert calls[0]['images'] == [
+        sim._PNG_SIGNATURE + b'hero',
+        sim._PNG_SIGNATURE + b'overhead',
+        sim._PNG_SIGNATURE + b'detail',
+    ]
+    assert len(calls) == 1, 'seeing images must not add a separate vision/model call'
+
+
+def test_wednesday_author_refuses_untrusted_or_misaligned_candidate_sources(monkeypatch):
+    monkeypatch.setattr(sim, 'generate_response', lambda **kwargs: pytest.fail('model called'))
+    with pytest.raises(RuntimeError, match='not aligned'):
+        run(stage_only='wednesday', image_paths=['a', 'b'],
+            image_urls=['https://store.public.blob.vercel-storage.com/a.png'])
+    with pytest.raises(RuntimeError, match='no readable trusted source'):
+        run(stage_only='wednesday', image_paths=['missing.png'],
+            image_urls=['https://example.com/missing.png'])
+
+
+def test_template_wednesday_fetches_no_pixels_and_calls_no_provider(monkeypatch):
+    monkeypatch.setattr(sim.requests, 'get', lambda *a, **k: pytest.fail('network fetch'))
+    monkeypatch.setattr(sim, 'generate_response', lambda **k: pytest.fail('provider call'))
+    result = run(
+        stage_only='wednesday',
+        mode='template',
+        image_paths=['images/current/hero.png'],
+        image_urls=['https://store.public.blob.vercel-storage.com/hero.png'],
+    )
+    assert result['messages']
+
+
+def test_cron_dialogue_threads_the_current_candidate_urls_to_the_author(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        cron_routes,
+        '_get_run_simulation',
+        lambda: lambda **kwargs: captured.append(kwargs) or {'messages': [{'message': 'ok'}]},
+    )
+    urls = [f'https://store.public.blob.vercel-storage.com/{name}.png'
+            for name in ('hero', 'overhead', 'detail')]
+    result = cron_routes._generate_dialogue(
+        'wednesday',
+        'Custard Cups',
+        image_paths=['hero.png', 'overhead.png', 'detail.png'],
+        image_urls=urls,
+        model='stub',
+    )
+    assert result == [{'message': 'ok'}]
+    assert captured[0]['image_urls'] == urls
 
 
 def test_per_line_prompts_are_byte_identical_to_main(monkeypatch):

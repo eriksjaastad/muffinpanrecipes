@@ -596,6 +596,7 @@ def _generate_dialogue(
     stage: str,
     concept: str,
     image_paths: list[str] | None = None,
+    image_urls: list[str] | None = None,
     photography_context: dict | None = None,
     model: str | None = None,
     injected_event: str | None = None,
@@ -628,6 +629,7 @@ def _generate_dialogue(
             prompt_style="scene",
             character_models=None,
             image_paths=image_paths or [],
+            image_urls=image_urls or [],
             photography_context=photography_context,
             recipe_context=recipe_context,
             retry_note=retry_note,
@@ -1134,6 +1136,7 @@ def _generate_and_judge_dialogue(
     episode: dict,
     model: str | None = None,
     image_paths: list[str] | None = None,
+    image_urls: list[str] | None = None,
     photography_context: dict | None = None,
     max_retries: int = 2,
     injected_event: str | None = None,
@@ -1175,6 +1178,7 @@ def _generate_and_judge_dialogue(
         dialogue = _generate_dialogue(
             stage, concept,
             image_paths=image_paths,
+            image_urls=image_urls,
             photography_context=photography_context,
             model=model,
             injected_event=injected_event,
@@ -2407,14 +2411,17 @@ async def cron_wednesday(request: Request):
             photo_write_owner.update(id=wed.pop("_registration_id"), kind="registration")
 
         wed_photo_ctx = photography_result if isinstance(photography_result, dict) else None
-        review_ctx = _photo_review_dialogue_context(episode_id, ep)
+        review_ctx, dialogue_image_paths, dialogue_image_urls = _photo_review_author_inputs(
+            episode_id, ep,
+        )
         if wed_photo_ctx is not None and review_ctx:
             # The team's pick is a recommendation until Erik chooses (#7936).
             wed_photo_ctx = {**wed_photo_ctx, "human_review": review_ctx}
         try:
             dialogue, judge_verdict = _generate_and_judge_dialogue(
                 "wednesday", concept, ep,
-                image_paths=image_paths,
+                image_paths=dialogue_image_paths,
+                image_urls=dialogue_image_urls,
                 photography_context=wed_photo_ctx,
                 model=body.model,
                 injected_event=body.injected_event,
@@ -2797,6 +2804,27 @@ def _photo_review_dialogue_context(episode_id: str, ep: dict) -> dict | None:
         logger.error(f"Photo control read failed for dialogue context: {type(exc).__name__}: {exc}")
         return photo_review.dialogue_context(None, unavailable=True)
     return photo_review.dialogue_context(view)
+
+
+def _photo_review_author_inputs(
+    episode_id: str, ep: dict,
+) -> tuple[dict | None, list[str], list[str]]:
+    """Current review status and exact review candidates for Wednesday's author.
+
+    Unlike later-day status-only dialogue, Wednesday cannot degrade to
+    "unknown": the author is deciding among the images, so a missing or
+    malformed control must fail instead of pretending the full stage arrays
+    are the reviewable set.
+    """
+    view = photo_review.read_view(storage, episode_id, ep)
+    candidates = (view.request or {}).get("candidates") or []
+    if not candidates:
+        raise RuntimeError(f"Photo review for {episode_id} has no reviewable candidate images")
+    return (
+        photo_review.dialogue_context(view),
+        [candidate["path"] for candidate in candidates],
+        [candidate["url"] for candidate in candidates],
+    )
 
 
 def _photo_review_only_context(episode_id: str, ep: dict) -> dict | None:

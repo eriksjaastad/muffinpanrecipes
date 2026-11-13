@@ -857,8 +857,9 @@ def generate_response(
     system_prompt: Optional[str] = None,
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.8,
+    images: Optional[list[bytes]] = None,
 ) -> str:
-    """Generate a text response through OpenRouter, or from the local model.
+    """Generate a text response through OpenRouter, optionally with images.
 
     Args:
         prompt: User prompt text.
@@ -868,6 +869,10 @@ def generate_response(
                provider's allowlist, then mapped by OPENROUTER_MODEL_IDS.
                A "local/<ollama model>" id goes to LOCAL_LLM_URL instead.
         temperature: Sampling temperature (0.0–2.0).
+        images: Optional raw candidate-image bytes. These are attached to the
+                same OpenRouter request as the prompt; they do not create a
+                second model call. Local Ollama models fail closed because
+                this router has no proven local-vision contract.
 
     Returns:
         Generated text.
@@ -876,13 +881,15 @@ def generate_response(
     logger.debug(f"Model router provider={routed.provider} model={routed.model}")
     _ALLOWLIST_CHECKS[routed.provider](routed.model)
     if routed.provider == "local":
+        if images:
+            raise RuntimeError("local dialogue models cannot receive candidate images")
         _fire_pre_call_hook("local", routed.model, _prompt_bytes(prompt, system_prompt))
         return _generate_local(prompt, system_prompt, routed.model, temperature)
     openrouter_model = openrouter_model_id(routed.provider, routed.model)
     _fire_pre_call_hook("openrouter", openrouter_model, _prompt_bytes(prompt, system_prompt))
     return _generate_openrouter(
         prompt=prompt, system_prompt=system_prompt,
-        model=openrouter_model, temperature=temperature,
+        model=openrouter_model, temperature=temperature, images=images,
     )
 
 

@@ -96,6 +96,32 @@ def test_vision_call_sends_images_to_openrouter_as_data_urls(sent):
     assert image["image_url"]["url"] == "data:image/png;base64,cG5n"
 
 
+def test_dialogue_call_sends_candidate_pixels_in_the_same_paid_request(sent):
+    model_router.generate_response(
+        "write the Wednesday scene",
+        images=[b"first", b"second"],
+        model="anthropic/claude-haiku-4-5-20251001",
+    )
+
+    assert len(sent) == 1
+    content = sent[0]["messages"][-1]["content"]
+    assert content[0] == {"type": "text", "text": "write the Wednesday scene"}
+    assert [item["image_url"]["url"] for item in content[1:]] == [
+        "data:image/png;base64,Zmlyc3Q=",
+        "data:image/png;base64,c2Vjb25k",
+    ]
+
+
+def test_local_dialogue_model_fails_closed_when_given_images(monkeypatch):
+    monkeypatch.setenv("LOCAL_LLM_URL", "http://127.0.0.1:11435")
+    with pytest.raises(RuntimeError, match="cannot receive candidate images"):
+        model_router.generate_response(
+            "write the Wednesday scene",
+            images=[b"image"],
+            model="local/qwen3.5:35b-a3b-q4_K_M",
+        )
+
+
 def test_an_allowlisted_id_with_no_mapping_fails_closed(sent, monkeypatch):
     monkeypatch.setenv("OPENAI_MODEL_ALLOWLIST", "gpt-4o")
 

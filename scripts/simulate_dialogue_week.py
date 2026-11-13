@@ -25,6 +25,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from statistics import mean
 from typing import Any, Iterable
+from urllib.parse import urlparse
+
+import requests
 
 from backend.config import config
 from backend.storage import CharacterMemoryUnavailable, storage
@@ -312,6 +315,91 @@ OPEN_ENDED_MAX_TICKS: dict = {}
 # it set this to False. Never enabled from the environment.
 AUTHOR_MODE: bool = True
 _AUTHOR_PARSE_TRIES = 3
+_AUTHOR_IMAGE_TIMEOUT_SECONDS = 20
+_AUTHOR_IMAGE_MAX_BYTES = 12 * 1024 * 1024
+_PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _author_candidate_images(
+    day: str,
+    image_paths: list[str] | None,
+    image_urls: list[str] | None,
+) -> list[bytes]:
+    """Load the exact Wednesday review candidates for the scene-author call.
+
+    Fresh shoots use public Vercel Blob URLs because ``image_paths`` are
+    canonical publication paths, not necessarily local files. Hermetic lab
+    tests may instead provide real local files. The bytes are ephemeral and
+    are never added to the episode JSON.
+    """
+    if day != "wednesday" or not image_paths:
+        return []
+    urls = image_urls or []
+    if urls and len(urls) != len(image_paths):
+        raise RuntimeError("Wednesday candidate image paths and URLs are not aligned")
+
+    images: list[bytes] = []
+    for index, raw_path in enumerate(image_paths, 1):
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = ROOT / path
+        resolved = path.resolve()
+        if path.is_file() and not resolved.is_relative_to(ROOT.resolve()):
+            raise RuntimeError(f"Wednesday candidate image {index} has an untrusted local path")
+        if path.is_file():
+            if path.stat().st_size > _AUTHOR_IMAGE_MAX_BYTES:
+                raise RuntimeError(
+                    f"Wednesday candidate image {index} exceeds "
+                    f"{_AUTHOR_IMAGE_MAX_BYTES} bytes"
+                )
+            payload = path.read_bytes()
+        else:
+            url = urls[index - 1] if index <= len(urls) else ""
+            parsed = urlparse(url)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or not parsed.hostname.endswith(".public.blob.vercel-storage.com")
+            ):
+                raise RuntimeError(f"Wednesday candidate image {index} has no readable trusted source")
+            response = requests.get(
+                url,
+                timeout=_AUTHOR_IMAGE_TIMEOUT_SECONDS,
+                stream=True,
+            )
+            try:
+                response.raise_for_status()
+                content_type = (
+                    response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+                )
+                if content_type != "image/png":
+                    raise RuntimeError(
+                        f"Wednesday candidate image {index} returned "
+                        f"{content_type or 'no content type'}"
+                    )
+                chunks: list[bytes] = []
+                size = 0
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if not chunk:
+                        continue
+                    size += len(chunk)
+                    if size > _AUTHOR_IMAGE_MAX_BYTES:
+                        raise RuntimeError(
+                            f"Wednesday candidate image {index} exceeds "
+                            f"{_AUTHOR_IMAGE_MAX_BYTES} bytes"
+                        )
+                    chunks.append(chunk)
+                payload = b"".join(chunks)
+            finally:
+                response.close()
+        if not payload or len(payload) > _AUTHOR_IMAGE_MAX_BYTES:
+            raise RuntimeError(
+                f"Wednesday candidate image {index} is empty or exceeds {_AUTHOR_IMAGE_MAX_BYTES} bytes"
+            )
+        if not payload.startswith(_PNG_SIGNATURE):
+            raise RuntimeError(f"Wednesday candidate image {index} is not a PNG")
+        images.append(payload)
+    return images
 
 # Every stop check is appended here (day, tick, decided, pushback, provider,
 # model, cost_usd). run_simulation clears it at start; the conversation lab
@@ -2605,6 +2693,7 @@ def _author_prompt(
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
     highlights: list[str], recent_lines: list[str], length_target: dict | None,
     photography_context: dict | None = None, retry_note: str | None = None,
+    candidate_image_count: int = 0,
 ) -> str:
     """Give a scene author character references and the meeting's factual context."""
     sheets = []
@@ -2625,6 +2714,13 @@ def _author_prompt(
         f"Photography context:\n{json.dumps(photography_context, ensure_ascii=False)}\n"
         if photography_context else ""
     )
+    attached_images = (
+        f"Attached candidate images: {candidate_image_count}. They are ordered Image 1 through "
+        f"Image {candidate_image_count} exactly as the current photo-review candidates. "
+        "The characters can see these pixels; compare visible composition, lighting, food texture, "
+        "crop, and story fit when choosing the hero. Do not invent details that are not visible.\n"
+        if candidate_image_count else ""
+    )
     retry = f"An earlier draft of this meeting was rejected. {retry_note} Fix that in this draft.\n" if retry_note else ""
     if length_target:
         length = (
@@ -2636,7 +2732,7 @@ def _author_prompt(
         f"Write the whole {day.title()} meeting as a fiction writer writing a scene.\n"
         f"Concept: {concept}\nTask: {DAY_MEETING_GOAL[day]['objective']}\n"
         f"Recipe: {recipe_context or concept}\nRecipe Method and facts:\n{recipe_facts or '(not supplied)'}\n"
-        f"{photography}{retry}"
+        f"{photography}{attached_images}{retry}"
         f"Injected event: {event or '(none)'}\n"
         f"Prior-day highlights:\n" + "\n".join(highlights or ['(none)']) + "\n"
         "Earlier dialogue:\n" + "\n".join(recent_lines or ['(none)']) + "\n\n"
@@ -2650,7 +2746,8 @@ def _author_prompt(
         "before or after it. Example format: Margaret: \"Spoken words.\"\n"
         f"The ONLY permitted speaker labels are: {', '.join(labels)}. "
         "Do not include coworkers outside this roster, even if their names occur in the biographies. "
-        "No headings, narration, stage directions, action markers, or markdown.\n\n"
+        "No headings, narration, stage directions, action markers, or markdown. "
+        "Use plain hyphens and straight quotes only; never use em dashes, en dashes, or curly quotes.\n\n"
         + "\n\n".join(sheets)
     )
 
@@ -2678,7 +2775,10 @@ def _parse_author_scene(text: str, names: list[str]) -> list[tuple[str, str]]:
             raise ValueError(f"Author scene line {number}: expected only a JSON speech string") from exc
         if not isinstance(spoken, str) or not spoken.strip():
             raise ValueError(f"Author scene line {number}: empty or non-string speech")
-        lines.append((name, spoken))
+        # Whole-scene author output follows the same house-style boundary as
+        # per-character turns. Vision-capable models otherwise reintroduce
+        # typographic tells that the standard turn path normalizes.
+        lines.append((name, sanitize_typographic_tells(spoken)))
     if not lines:
         raise ValueError("Author scene is empty")
     return lines
@@ -2695,6 +2795,7 @@ def run_simulation(
     prompt_style: str,
     character_models: dict[str, str] | None,
     image_paths: list[str] | None = None,  # 3 image paths from photography stage
+    image_urls: list[str] | None = None,  # aligned public candidates for author vision/retries
     photography_context: dict | None = None,  # full photography data with rounds/reshoot
     initial_highlights: list[str] | None = None,  # pre-computed week highlights for context injection
     initial_recent_lines: list[str] | None = None,  # seed recent_lines (e.g. Saturday msgs for Sunday-only runs)
@@ -2748,10 +2849,16 @@ def run_simulation(
         names = participants_for_day(day)
 
         if AUTHOR_MODE:
+            # Template mode is the zero-provider-call plumbing check. It must
+            # not fetch remote pixels either; paid/live conversation tests do
+            # load and reuse the stored candidate set.
+            candidate_images = (
+                [] if mode == "template" else _author_candidate_images(day, image_paths, image_urls)
+            )
             prompt = _author_prompt(
                 personas, names, concept, day, recipe_context, recipe_facts,
                 injected_event, week_highlights, recent_lines, author_length_target,
-                photography_context, retry_note,
+                photography_context, retry_note, len(candidate_images),
             )
             # A reply the parser rejects is rewritten, told why, up to
             # _AUTHOR_PARSE_TRIES times, then raises: production must not lose a
@@ -2763,7 +2870,12 @@ def run_simulation(
                     count = (author_length_target or {}).get('lines', TICKS_RANGE[day][0])
                     text = '\n'.join(f"{names[i % len(names)]}: {json.dumps(f'Let us discuss {concept}.')}" for i in range(count))
                 else:
-                    text = generate_response(prompt=prompt, model=default_model, temperature=0.8)
+                    text = generate_response(
+                        prompt=prompt,
+                        model=default_model,
+                        temperature=0.8,
+                        images=candidate_images or None,
+                    )
                 try:
                     scene = _parse_author_scene(text, names)
                     break
