@@ -477,10 +477,11 @@ def test_sitemap_lists_catalog_recipes_and_site_roots() -> None:
     assert "<loc>https://muffinpanrecipes.com/</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/this-week</loc>" in xml
+    assert "<loc>https://muffinpanrecipes.com/about</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/privacy</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/savory-bacon-biscuit-rounds</loc>" in xml
     assert "<loc>https://muffinpanrecipes.com/recipes/spinach-feta-egg-bites</loc>" in xml
-    assert xml.count("<url>") == 6  # 4 site roots + 2 recipes; slug-less entry skipped
+    assert xml.count("<url>") == 7  # 5 site roots + 2 recipes; slug-less entry skipped
 
 
 def test_stored_this_week_page_gets_privacy_footer_before_response() -> None:
@@ -546,7 +547,7 @@ def test_sitemap_falls_back_to_static_catalog_when_blob_empty() -> None:
     )
     seed_count = len([r for r in static["recipes"] if r.get("slug")])
     assert seed_count >= 10  # guard: the seed file itself went missing/empty
-    assert xml.count("<url>") == 4 + seed_count  # /, /recipes, /this-week, /privacy + seeds
+    assert xml.count("<url>") == 5 + seed_count  # site roots + seeds
     assert "spinach-feta-egg-bites" in xml
 
 
@@ -592,7 +593,7 @@ def test_sitemap_empty_catalog_is_still_a_valid_roots_only_sitemap() -> None:
     """A well-formed empty catalog is not an error."""
     with patch.object(episode_routes.storage, "load_page", return_value='{"recipes": []}'):
         resp = asyncio.run(episode_routes.sitemap_xml())
-    assert bytes(resp.body).decode().count("<url>") == 4
+    assert bytes(resp.body).decode().count("<url>") == 5
 
 
 # ---------------------------------------------------------------------------
@@ -1285,8 +1286,25 @@ def test_homepage_emits_srcset_only_when_variants_exist() -> None:
         page = static_renderer.render_home(recipes)
 
     assert 'srcset="/blob-images/aa11/round_1/macro_closeup-400w.webp 400w, /blob-images/aa11/round_1/macro_closeup-800w.webp 800w' in page
+    assert 'fetchpriority="high"' in page
+    helper = page.split("function verifiedHeroImageAttrs", 1)[1].split("function renderGrid", 1)[0]
+    assert "existing.getAttribute('src') !== image" in helper
+    assert "existing.getAttribute('srcset')" in helper
+    assert "-400w.webp" not in helper
     assert "bb22/round_1/macro_closeup-400w.webp" not in page
-    assert page.count("sizes=") == 1
+    assert page.count("sizes=") == 2  # server hero + guarded attribute template
+
+
+def test_homepage_hydration_does_not_guess_variants_for_changed_featured_blob() -> None:
+    """A live featured-image change must not manufacture unverified URLs."""
+    page = render_home([
+        {"slug": "server-cup", "title": "Server Cup", "image": "/blob-images/server.webp"},
+        {"slug": "live-cup", "title": "Live Cup", "image": "/blob-images/live.webp"},
+    ])
+    helper = page.split("function verifiedHeroImageAttrs", 1)[1].split("function renderGrid", 1)[0]
+    assert "existing.getAttribute('src') !== image" in helper
+    assert "if (!srcset || !sizes) return ''" in helper
+    assert "-400w.webp" not in helper
 
 
 def test_every_robots_group_disallows_the_rewrite_continuation_path() -> None:

@@ -106,6 +106,7 @@
                                  width="1536"
                                  height="1536"
                                  onerror="handleImageError(this)"
+                                 fetchpriority="high"
                                  alt="Black Sesame Popover Cups">
                         </div>
                         <div>
@@ -831,6 +832,19 @@
             return isSeedAsset ? 1024 : 1536;
         }
 
+        // The featured image is the homepage LCP candidate. Hydration may
+        // preserve responsive candidates only when the live catalog still
+        // points at the server-rendered hero whose variants were verified at
+        // build time. A changed/unverified image gets no guessed URLs.
+        function verifiedHeroImageAttrs(image) {
+            const existing = document.querySelector('#featured-recipe .featured__image img');
+            if (!existing || existing.getAttribute('src') !== image) return '';
+            const srcset = existing.getAttribute('srcset');
+            const sizes = existing.getAttribute('sizes');
+            if (!srcset || !sizes) return '';
+            return ' srcset="' + srcset + '" sizes="' + sizes + '"';
+        }
+
         function renderGrid(filter = 'All') {
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
@@ -890,10 +904,11 @@
                 <a href="${recipeHref(featured.slug)}" class="featured-link">
                     <div class="featured__grid">
                         <div class="featured__image">
-                            <img src="${featured.image}"
+                            <img src="${featured.image}"${verifiedHeroImageAttrs(featured.image)}
                                  width="${imageDimension(featured, 'image_width')}"
                                  height="${imageDimension(featured, 'image_height')}"
                                  onerror="handleImageError(this)"
+                                 fetchpriority="high"
                                  alt="${featured.title}">
                         </div>
                         <div>
@@ -915,10 +930,10 @@
 
         // Character avatar colors (must match episode_renderer.py)
         const AVATAR_STYLES = {
-            margaret: { bg: '#C9B99A', fg: '#5C4E2F' },
-            marcus: { bg: '#9AABBF', fg: '#2F3D5C' },
-            steph: { bg: '#BF9AB5', fg: '#5C2F4E' },
-            julian: { bg: '#9ABFA3', fg: '#2F5C3D' },
+            margaret: { bg: '#C9B99A', fg: '#443B24' },
+            marcus: { bg: '#9AABBF', fg: '#26334C' },
+            steph: { bg: '#BF9AB5', fg: '#48243D' },
+            julian: { bg: '#9ABFA3', fg: '#253F2B' },
             devon: { bg: '#ABABAB', fg: '#3D3D3D' },
             ria: { bg: '#FFFFFF', fg: '#2A2A2A' },
         };

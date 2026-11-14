@@ -17,6 +17,7 @@ from backend.publishing.episode_renderer import SEO_DESCRIPTION_MAX_LENGTH, _seo
 
 SITE_BASE = "https://muffinpanrecipes.com"
 RECIPES_CANONICAL = f"{SITE_BASE}/recipes"
+ABOUT_CANONICAL = f"{SITE_BASE}/about"
 PRIVACY_CANONICAL = f"{SITE_BASE}/privacy"
 CATEGORY_ORDER = ["Breakfast", "Savory", "Sweet", "Party"]
 
@@ -163,6 +164,7 @@ def render_sitemap(recipes: list[dict]) -> str:
         f"  <url><loc>{SITE_BASE}/</loc></url>",
         f"  <url><loc>{RECIPES_CANONICAL}</loc></url>",
         f"  <url><loc>{SITE_BASE}/this-week</loc></url>",
+        f"  <url><loc>{ABOUT_CANONICAL}</loc></url>",
         f"  <url><loc>{PRIVACY_CANONICAL}</loc></url>",
     ]
     for recipe in recipes:
@@ -307,6 +309,7 @@ def _home_featured_markup(recipe: dict) -> str:
                                  width="{width}"
                                  height="{height}"
                                  onerror="handleImageError(this)"
+                                 fetchpriority="high"
                                  alt="{title}">
                         </div>
                         <div>
@@ -657,6 +660,19 @@ def render_home(recipes: list[dict]) -> str:
             return isSeedAsset ? 1024 : 1536;
         }}
 
+        // The featured image is the homepage LCP candidate. Hydration may
+        // preserve responsive candidates only when the live catalog still
+        // points at the server-rendered hero whose variants were verified at
+        // build time. A changed/unverified image gets no guessed URLs.
+        function verifiedHeroImageAttrs(image) {{
+            const existing = document.querySelector('#featured-recipe .featured__image img');
+            if (!existing || existing.getAttribute('src') !== image) return '';
+            const srcset = existing.getAttribute('srcset');
+            const sizes = existing.getAttribute('sizes');
+            if (!srcset || !sizes) return '';
+            return ' srcset="' + srcset + '" sizes="' + sizes + '"';
+        }}
+
         function renderGrid(filter = 'All') {{
             const grid = document.getElementById('recipe-grid');
             grid.innerHTML = '';
@@ -716,10 +732,11 @@ def render_home(recipes: list[dict]) -> str:
                 <a href="${{recipeHref(featured.slug)}}" class="featured-link">
                     <div class="featured__grid">
                         <div class="featured__image">
-                            <img src="${{featured.image}}"
+                            <img src="${{featured.image}}"${{verifiedHeroImageAttrs(featured.image)}}
                                  width="${{imageDimension(featured, 'image_width')}}"
                                  height="${{imageDimension(featured, 'image_height')}}"
                                  onerror="handleImageError(this)"
+                                 fetchpriority="high"
                                  alt="${{featured.title}}">
                         </div>
                         <div>
@@ -741,10 +758,10 @@ def render_home(recipes: list[dict]) -> str:
 
         // Character avatar colors (must match episode_renderer.py)
         const AVATAR_STYLES = {{
-            margaret: {{ bg: '#C9B99A', fg: '#5C4E2F' }},
-            marcus: {{ bg: '#9AABBF', fg: '#2F3D5C' }},
-            steph: {{ bg: '#BF9AB5', fg: '#5C2F4E' }},
-            julian: {{ bg: '#9ABFA3', fg: '#2F5C3D' }},
+            margaret: {{ bg: '#C9B99A', fg: '#443B24' }},
+            marcus: {{ bg: '#9AABBF', fg: '#26334C' }},
+            steph: {{ bg: '#BF9AB5', fg: '#48243D' }},
+            julian: {{ bg: '#9ABFA3', fg: '#253F2B' }},
             devon: {{ bg: '#ABABAB', fg: '#3D3D3D' }},
             ria: {{ bg: '#FFFFFF', fg: '#2A2A2A' }},
         }};

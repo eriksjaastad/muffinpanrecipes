@@ -30,15 +30,26 @@ def _recipe(title: str, slug: str) -> dict:
 @pytest.fixture
 def homepage_server():
     stale = _recipe("Stale Black Sesame Cups", "stale-black-sesame-cups")
+    stale["image"] = "/blob-images/server/hero.webp"
     live = _recipe("Live Golden Gruyere Cups", "live-golden-gruyere-cups")
-    settings = {"delay": 0.0, "fail": False}
-    page_html = render_home([stale]).encode()
+    settings = {"delay": 0.0, "fail": False, "live_image": stale["image"], "server_verified": True}
     css = (Path(__file__).resolve().parents[2] / "src" / "assets" / "site.css").read_bytes()
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):  # noqa: N802
             if self.path in ("/", "/index.html"):
-                self._reply(200, "text/html; charset=utf-8", page_html)
+                page_html = render_home([stale])
+                if settings["server_verified"]:
+                    page_html = page_html.replace(
+                        f'<img src="{stale["image"]}"',
+                        f'<img src="{stale["image"]}" '
+                        'srcset="/blob-images/server/hero-400w.webp 400w, '
+                        '/blob-images/server/hero-800w.webp 800w, '
+                        '/blob-images/server/hero.webp 1536w" '
+                        'sizes="(max-width: 768px) 100vw, 720px"',
+                        1,
+                    )
+                self._reply(200, "text/html; charset=utf-8", page_html.encode())
                 return
             if self.path == "/assets/site.css":
                 self._reply(200, "text/css; charset=utf-8", css)
@@ -48,6 +59,7 @@ def homepage_server():
                 if settings["fail"]:
                     self._reply(503, "application/json", b'{"error":"catalog unavailable"}')
                 else:
+                    live["image"] = settings["live_image"]
                     self._reply(200, "application/json", json.dumps({"recipes": [live]}).encode())
                 return
             self._reply(404, "text/plain", b"not found")
@@ -113,3 +125,41 @@ def test_no_javascript_browser_sees_crawlable_fallback(browser: Browser, homepag
         expect(page.get_by_role("heading", name="Stale Black Sesame Cups")).to_be_visible()
     finally:
         context.close()
+
+
+def test_hydration_reuses_only_verified_server_hero_candidates(page: Page, homepage_server) -> None:
+    """The live catalog may reuse verified server candidates, never invent them."""
+    settings, url = homepage_server
+    image = page.locator(".featured__image img")
+    live_heading = page.get_by_role("heading", name="Live Golden Gruyere Cups")
+    expected_srcset = (
+        "/blob-images/server/hero-400w.webp 400w, "
+        "/blob-images/server/hero-800w.webp 800w, "
+        "/blob-images/server/hero.webp 1536w"
+    )
+
+    page.goto(url, wait_until="domcontentloaded")
+    expect(live_heading).to_be_visible(timeout=3000)
+    expect(image).to_have_attribute("src", "/blob-images/server/hero.webp")
+    expect(image).to_have_attribute("srcset", expected_srcset)
+    expect(image).to_have_attribute("sizes", "(max-width: 768px) 100vw, 720px")
+    expect(image).to_have_attribute("fetchpriority", "high")
+
+    settings["live_image"] = "/blob-images/live/changed.webp"
+    page.reload(wait_until="domcontentloaded")
+    expect(live_heading).to_be_visible(timeout=3000)
+    expect(image).to_have_attribute("src", "/blob-images/live/changed.webp")
+    # The image remains an eager LCP candidate, but unverified responsive
+    # candidates must not survive hydration.
+    assert image.get_attribute("srcset") is None
+    assert image.get_attribute("sizes") is None
+    expect(image).to_have_attribute("fetchpriority", "high")
+
+    settings["live_image"] = "/blob-images/server/hero.webp"
+    settings["server_verified"] = False
+    page.reload(wait_until="domcontentloaded")
+    expect(live_heading).to_be_visible(timeout=3000)
+    expect(image).to_have_attribute("src", "/blob-images/server/hero.webp")
+    assert image.get_attribute("srcset") is None
+    assert image.get_attribute("sizes") is None
+    expect(image).to_have_attribute("fetchpriority", "high")
