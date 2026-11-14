@@ -22,9 +22,20 @@ DAY_PATHS = [c["path"] for c in json.loads((ROOT / "vercel.json").read_text())["
              if c["path"] != "/api/cron/repair"]
 
 
+def _leaf_routes(routes):
+    for route in routes:
+        nested = getattr(route, "routes", None)
+        if nested is None:
+            nested = getattr(getattr(route, "original_router", None), "routes", ())
+        yield from _leaf_routes(nested)
+        if hasattr(route, "endpoint"):
+            yield route
+
+
 def _endpoint(path: str):
     scope = {"type": "http", "path": path, "method": "POST"}
-    return next(r.endpoint for r in app.router.routes if r.matches(scope)[0] is Match.FULL)
+    return next(r.endpoint for r in _leaf_routes(app.router.routes)
+                if r.matches(scope)[0] is Match.FULL)
 
 
 def _run(monkeypatch, argv, statuses=None, judge_fails=None, load=None):
