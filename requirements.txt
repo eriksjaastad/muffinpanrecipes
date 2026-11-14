@@ -39,7 +39,7 @@ distro==1.9.0
     # via openai
 ecdsa==0.19.1
     # via python-jose
-fastapi==0.128.0
+fastapi==0.162.2
     # via muffinpanrecipes-creative-team
 h11==0.16.0
     # via
@@ -70,6 +70,8 @@ markupsafe==3.0.3
     # via jinja2
 openai==2.24.0
     # via muffinpanrecipes-creative-team
+opentelemetry-api==1.45.2
+    # via fastapi
 pillow==10.4.0
     # via muffinpanrecipes-creative-team
 pyasn1==0.6.2
@@ -107,8 +109,10 @@ six==1.17.0
     #   python-dateutil
 sniffio==1.3.1
     # via openai
-starlette==0.50.0
-    # via fastapi
+starlette==1.10.0
+    # via
+    #   fastapi
+    #   muffinpanrecipes-creative-team
 tqdm==4.67.3
     # via openai
 typing-extensions==4.15.0
@@ -116,12 +120,15 @@ typing-extensions==4.15.0
     #   anyio
     #   fastapi
     #   openai
+    #   opentelemetry-api
     #   pydantic
     #   pydantic-core
     #   starlette
     #   typing-inspection
 typing-inspection==0.4.2
-    # via pydantic
+    # via
+    #   fastapi
+    #   pydantic
 urllib3==2.6.3
     # via
     #   botocore

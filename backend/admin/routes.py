@@ -399,6 +399,7 @@ def create_routes(app: FastAPI):
         ]
 
         return templates.TemplateResponse(
+            request,
             "dashboard.html",
             {
                 "request": request,
@@ -460,6 +461,7 @@ def create_routes(app: FastAPI):
     ):
         """The Published catalog, read from cloud storage (#8604)."""
         return app.state.templates.TemplateResponse(
+            request,
             "recipes.html",
             {"request": request, "recipes": _published_catalog()},
         )
@@ -504,6 +506,7 @@ def create_routes(app: FastAPI):
         except HTTPException as e:
             # Invalid ID format — render error template instead of raising
             return templates.TemplateResponse(
+                request,
                 "recipe_detail.html",
                 {
                     "request": request,
@@ -524,6 +527,7 @@ def create_routes(app: FastAPI):
                     except Exception as e:
                         logger.error(f"Error loading recipe {recipe_id}: {e}")
                         return templates.TemplateResponse(
+                            request,
                             "recipe_detail.html",
                             {
                                 "request": request,
@@ -536,6 +540,7 @@ def create_routes(app: FastAPI):
 
             if not recipe:
                 return templates.TemplateResponse(
+                    request,
                     "recipe_detail.html",
                     {
                         "request": request,
@@ -561,6 +566,7 @@ def create_routes(app: FastAPI):
             recipe_payload["image_url"] = image_url
 
             return templates.TemplateResponse(
+                request,
                 "recipe_detail.html",
                 {
                     "request": request,
@@ -571,6 +577,7 @@ def create_routes(app: FastAPI):
             # Catch any other unexpected exceptions and render error template
             logger.error(f"Error rendering recipe detail: {e}", exc_info=True)
             return templates.TemplateResponse(
+                request,
                 "recipe_detail.html",
                 {
                     "request": request,
@@ -1218,6 +1225,7 @@ def create_routes(app: FastAPI):
         episodes = all_episodes[start : start + page_size]
 
         return templates.TemplateResponse(
+            request,
             "episodes.html",
             {
                 "request": request,
@@ -1259,6 +1267,7 @@ def create_routes(app: FastAPI):
         )
 
         return templates.TemplateResponse(
+            request,
             "episode_detail.html",
             {
                 "request": request,
@@ -1787,6 +1796,7 @@ def create_routes(app: FastAPI):
                 for key, reason in required_missing.items()
             )
             return app.state.templates.TemplateResponse(
+                request,
                 "admin_error.html",
                 {
                     "request": request,
@@ -1797,6 +1807,7 @@ def create_routes(app: FastAPI):
                 status_code=503,
             )
         return app.state.templates.TemplateResponse(
+            request,
             "tests.html",
             {
                 "request": request,
@@ -1818,6 +1829,7 @@ def create_routes(app: FastAPI):
         if path is None:
             raise HTTPException(status_code=404, detail="No such result file")
         return app.state.templates.TemplateResponse(
+            request,
             "test_detail.html",
             {
                 "request": request,
@@ -1832,6 +1844,7 @@ def create_routes(app: FastAPI):
         """Catch-all for unknown /admin/* paths — renders styled 404 page."""
         templates = app.state.templates
         return templates.TemplateResponse(
+            request,
             "admin_error.html",
             {
                 "request": request,
