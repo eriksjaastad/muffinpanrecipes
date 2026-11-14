@@ -59,6 +59,41 @@ def _catalog() -> list[dict]:
     return json.loads((SRC / "recipes.json").read_text(encoding="utf-8"))["recipes"]
 
 
+def _relative_luminance(hex_color: str) -> float:
+    channels = [int(hex_color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+    linear = [
+        channel / 12.92 if channel <= 0.04045 else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in channels
+    ]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(foreground: str, background: str) -> float:
+    first = _relative_luminance(foreground)
+    second = _relative_luminance(background)
+    return (max(first, second) + 0.05) / (min(first, second) + 0.05)
+
+
+def _assert_shared_palette_is_accessible(css: str) -> None:
+    expected_tokens = {
+        "--sage",
+        "--terracotta",
+        "--gray-300",
+        "--gray-400",
+        "--gray-500",
+    }
+    tokens = dict(
+        re.findall(
+            r"(--(?:sage|terracotta|gray-(?:300|400|500))):\s*(#[0-9A-Fa-f]{6})",
+            css,
+        )
+    )
+    assert set(tokens) == expected_tokens
+    for name, value in tokens.items():
+        assert _contrast_ratio(value, "#FFFFFF") >= 4.5, f"{name} fails on white"
+        assert _contrast_ratio(value, "#F9F7F2") >= 4.5, f"{name} fails on linen"
+
+
 @pytest.mark.parametrize("relative_path", REQUIRED_ARTIFACTS)
 def test_required_static_artifact_is_committed_and_non_empty(relative_path: str) -> None:
     artifact = SRC / relative_path
@@ -110,10 +145,38 @@ def test_committed_recipe_pages_carry_the_seo_surface() -> None:
     assert imgs and all("width=" in tag and "height=" in tag for tag in imgs), "every <img> needs width/height"
 
 
+def test_committed_homepage_prioritizes_its_lcp_image() -> None:
+    page = (SRC / "index.html").read_text(encoding="utf-8")
+    hero = page.split('class="featured__image"', 1)[1].split("</div>", 1)[0]
+    assert 'fetchpriority="high"' in hero
+
+
+def test_shared_text_palette_meets_wcag_aa_on_page_surfaces() -> None:
+    """Guard the shared fix for PageSpeed's cross-template contrast finding."""
+    css = (SRC / "assets" / "site.css").read_text(encoding="utf-8")
+    _assert_shared_palette_is_accessible(css)
+
+    # Mutation guard: restoring the old low-contrast gray ramp must fail this
+    # test, proving gray-300/400 are actually covered by the parser above.
+    with pytest.raises(AssertionError):
+        _assert_shared_palette_is_accessible(
+            css.replace("--gray-300: #6B7280", "--gray-300: #D1D5DB")
+               .replace("--gray-400: #6B7280", "--gray-400: #9CA3AF")
+        )
+
+    avatar_rules = re.findall(
+        r"\.avatar-[^{]+\s*\{\s*background:\s*(#[0-9A-Fa-f]{6});\s*color:\s*(#[0-9A-Fa-f]{6});",
+        css,
+    )
+    assert avatar_rules
+    assert all(_contrast_ratio(foreground, background) >= 4.5 for background, foreground in avatar_rules)
+
+
 def test_sitemap_lists_the_committed_recipe_pages() -> None:
     sitemap = (SRC / "sitemap.xml").read_text(encoding="utf-8")
     locations = re.findall(r"<loc>([^<]+)</loc>", sitemap)
     assert len(locations) == len(set(locations)), "sitemap.xml has duplicate <loc> entries"
+    assert "https://muffinpanrecipes.com/about" in locations
     for slug in (SEED_RECIPE_SLUG, PUBLISHED_EPISODE_SLUG):
         assert f"/recipes/{slug}" in sitemap, slug
 
