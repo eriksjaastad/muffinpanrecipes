@@ -961,7 +961,9 @@ false-negative analysis, source hashes, and reproduction commands:
 
 ## 2026-11-16 — Monday role-shift pilot (#116029271227658240), PREREGISTERED
 
-**Status: not yet benchmarked. All results below are pending; none have been run.**
+**Status: HOLD / DO NOT SHIP.** The preregistered six-week OAuth comparison
+completed on 2026-11-16. The candidate tied the main pass rate and regressed
+technical credibility, so the prompt sentence was removed before publication.
 
 **Experiment version:** `monday-role-shift-v1`.
 
@@ -1010,7 +1012,23 @@ changes inside that window.
 shows any guard dimension down against the pre-ship baseline, or the Monday pass
 rate at or below main's.
 
-**Results:** main pass rate — pending. Branch pass rate — pending. Guards — pending.
+**Results.** The local subscription-authenticated harness ran W42-W47 once on
+unchanged main and once on the candidate branch. Every author and judge call
+used the `claude -p` transport with paid-provider keys stripped; total provider
+cost was $0 and no images were generated.
+
+- Main: 4/6 PASS (W42, W44, W45, W46); W43 and W47 failed.
+- Candidate: 4/6 PASS (W42, W43, W44, W46); W45 and W47 failed.
+- The candidate rescued W43 but broke W45.
+- Mean guard deltas (candidate minus main): title fidelity +0.17; technical
+  credibility -0.33; arc resolution +0.00; turn-taking +0.00.
+- Additional means: voice distinctiveness +0.00; natural progression +0.00.
+- Calls: 24 subscription calls across 12 benches; provider cost $0.
+
+**Decision:** HOLD / DO NOT SHIP. The candidate did not raise the pass rate and
+regressed a preregistered guard. There is no two-week production remeasurement
+because the change did not enter production. Full result JSON is retained in
+the dated Saga artifact `muffin-dialogue-role-shift/oauth-bench/`.
 
 ## Benchmarks
 
