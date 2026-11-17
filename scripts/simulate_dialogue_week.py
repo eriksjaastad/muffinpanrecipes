@@ -2699,6 +2699,15 @@ def _generate_episode_memories(
             logger.warning(f"Local-simulation memory write failed for {char_name}: {type(e).__name__}: {e}")
 
 
+# Monday-only pilot (#116029271227658240): one scene-leverage lever, preregistered in
+# docs/conversation-lab/EXPERIMENTS.md. Other days must not carry it.
+_MONDAY_ROLE_SHIFT = (
+    "Let one roster member take a conversational role they do not usually take "
+    "(authority, skeptic, mediator, or the person who changes their mind), grounded in "
+    "what that character knows, without announcing the shift.\n"
+)
+
+
 def _author_prompt(
     personas: dict[str, dict[str, Any]], names: list[str], concept: str, day: str,
     recipe_context: str | None, recipe_facts: str | None, event: str | None,
@@ -2750,6 +2759,7 @@ def _author_prompt(
         "Character sheets describe tendencies, not rules. People have good days and bad days. "
         "Choose who speaks, when someone interrupts, and who stays silent. Roster members "
         "may stay silent. Let people answer each other and let the meeting reach a decision.\n"
+        f"{_MONDAY_ROLE_SHIFT if day == 'monday' else ''}"
         f"{length}\n"
         "Output only Name: followed by one JSON string containing the spoken words, "
         "one message per line. Wrap each utterance in double quotes and use JSON escaping "

@@ -959,6 +959,59 @@ false-negative analysis, source hashes, and reproduction commands:
 `e1-situated-response-preregistration.md` and
 `results/e1-situated-response-report.md`.
 
+## 2026-11-16 — Monday role-shift pilot (#116029271227658240), PREREGISTERED
+
+**Status: not yet benchmarked. All results below are pending; none have been run.**
+
+**Experiment version:** `monday-role-shift-v1`.
+
+**Exact prompt text** (whole-scene author path, Monday only; one sentence added
+after "Let people answer each other and let the meeting reach a decision."):
+
+> Let one roster member take a conversational role they do not usually take (authority, skeptic, mediator, or the person who changes their mind), grounded in what that character knows, without announcing the shift.
+
+Source: `_MONDAY_ROLE_SHIFT` in `scripts/simulate_dialogue_week.py`, appended by
+`_author_prompt` only when `day == 'monday'`.
+
+**Previous behavior.** Recent production scenes are coherent but give each
+character the same conversational function every week (Margaret the authority,
+Steph the moderator, Marcus the story-angle voice, Ria the hook voice). See
+DIALS.md section 2(b) and open question 5. Monday prompts carried no instruction
+about who occupies which role.
+
+**Why.** Voices blur because scene leverage is fixed, not because character
+material is thin; DIALS.md 2(c) and #7206 rule out more material and deeper
+few-shot. This varies who holds leverage in a scene while the biography, voice
+guide and example lines keep each character's core identity. It adds no rotation
+engine, persistent state, model or provider change, and no second directive.
+
+**Expected effect.** Monday scenes where someone other than the usual authority
+is right, skeptical, mediating or persuaded, grounded in what they know, with
+no announced inversion.
+
+**Scope.** Monday only. Tuesday through Sunday prompts are unchanged; the test
+`test_monday_role_shift_sentence_is_monday_only` pins that.
+
+**Primary measure.** Monday judge pass rate, `conversation_lab.py bench
+--from-episode <week> --stage monday` on the six most recent weeks, once on main
+and once on the branch.
+
+**Guards (must not regress against main):** technical_credibility, title_fidelity,
+arc_resolution, adjacency_continuity / turn-taking.
+
+**Ship rule.** The branch must raise the six-week Monday pass rate over main with
+no guard regression. Otherwise do not ship. Both rates go in the PR body.
+
+**Two-week remeasurement.** Two weeks after shipping, re-measure Monday against
+the DIALS.md section 3 table and the guards (DIALS.md section 7). No other lever
+changes inside that window.
+
+**Rollback condition.** Revert in a PR, logging the numbers, if the remeasurement
+shows any guard dimension down against the pre-ship baseline, or the Monday pass
+rate at or below main's.
+
+**Results:** main pass rate — pending. Branch pass rate — pending. Guards — pending.
+
 ## Benchmarks
 
 

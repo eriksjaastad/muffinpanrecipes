@@ -23,6 +23,17 @@ def run(module=sim, **kwargs):
     )
 
 
+def test_monday_role_shift_sentence_is_monday_only():
+    """#116029271227658240: the preregistered Monday pilot lever must not leak to other days."""
+    def prompt(day):
+        names = sim.participants_for_day(day)
+        personas = {n: {'role': 'tester'} for n in names}
+        return sim._author_prompt(personas, names, 'Custard Cups', day, None, None, None, [], [], None)
+
+    assert sim._MONDAY_ROLE_SHIFT in prompt('monday')
+    assert sim._MONDAY_ROLE_SHIFT not in prompt('tuesday')
+
+
 def test_author_one_call_owns_scene_and_keeps_result_contract(monkeypatch):
     prompts = []
     scene = '\n'.join(['Margaret: "Too wet."', 'Steph: "More flour?"', 'Margaret: "No, hotter oven."'] * 2)
