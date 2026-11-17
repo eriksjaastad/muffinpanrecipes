@@ -959,6 +959,240 @@ false-negative analysis, source hashes, and reproduction commands:
 `e1-situated-response-preregistration.md` and
 `results/e1-situated-response-report.md`.
 
+## 2026-11-16 — Monday role-shift pilot (#116029271227658240), PREREGISTERED
+
+**Status: HOLD / DO NOT SHIP.** The preregistered six-week OAuth comparison
+completed on 2026-11-16. The candidate tied the main pass rate and regressed
+technical credibility, so the prompt sentence was removed before publication.
+
+**Experiment version:** `monday-role-shift-v1`.
+
+**Exact prompt text** (whole-scene author path, Monday only; one sentence added
+after "Let people answer each other and let the meeting reach a decision."):
+
+> Let one roster member take a conversational role they do not usually take (authority, skeptic, mediator, or the person who changes their mind), grounded in what that character knows, without announcing the shift.
+
+Historical source snapshot: candidate commit
+`6120f563e49a60f7364c7b061a7aafb01bbf0288` added
+`_MONDAY_ROLE_SHIFT` in `scripts/simulate_dialogue_week.py` and appended it from
+`_author_prompt` only when `day == 'monday'`. That commit is an ancestor of this
+experiment-record branch, so the exact implementation is recoverable from Git
+without a local branch or reflog. The prompt and its scope test were removed by
+documentation commit `362d98df3e3d684c02c942868fe7625c3fe11f99`
+after the HOLD decision; they are not current production symbols.
+
+**Previous behavior.** Recent production scenes are coherent but give each
+character the same conversational function every week (Margaret the authority,
+Steph the moderator, Marcus the story-angle voice, Ria the hook voice). See
+DIALS.md section 2(b) and open question 5. Monday prompts carried no instruction
+about who occupies which role.
+
+**Why.** Voices blur because scene leverage is fixed, not because character
+material is thin; DIALS.md 2(c) and #7206 rule out more material and deeper
+few-shot. This varies who holds leverage in a scene while the biography, voice
+guide and example lines keep each character's core identity. It adds no rotation
+engine, persistent state, model or provider change, and no second directive.
+
+**Expected effect.** Monday scenes where someone other than the usual authority
+is right, skeptical, mediating or persuaded, grounded in what they know, with
+no announced inversion.
+
+**Scope.** Monday only. Tuesday through Sunday prompts were unchanged. Historical
+test `test_monday_role_shift_sentence_is_monday_only` in candidate commit
+`6120f563e49a60f7364c7b061a7aafb01bbf0288` pinned that scope; the test was
+removed with the held prompt.
+
+**Primary measure.** Monday judge pass rate, `conversation_lab.py bench
+--from-episode <week> --stage monday` on the six most recent weeks, once on main
+and once on the branch.
+
+**Guards (must not regress against main):** technical_credibility, title_fidelity,
+arc_resolution, adjacency_continuity / turn-taking.
+
+**Ship rule.** The branch must raise the six-week Monday pass rate over main with
+no guard regression. Otherwise do not ship. Both rates go in the PR body.
+
+**Two-week remeasurement.** Two weeks after shipping, re-measure Monday against
+the DIALS.md section 3 table and the guards (DIALS.md section 7). No other lever
+changes inside that window.
+
+**Rollback condition.** Revert in a PR, logging the numbers, if the remeasurement
+shows any guard dimension down against the pre-ship baseline, or the Monday pass
+rate at or below main's.
+
+**Results.** The local subscription-authenticated harness ran W42-W47 once on
+unchanged main and once on the candidate branch. Every author and judge call
+used the `claude -p` transport with paid-provider keys stripped; total provider
+cost was $0 and no images were generated.
+
+The repeated command shape was:
+
+```text
+uv run scripts/conversation_lab.py bench --stage monday --runs 1 \
+  --from-episode 2026-W<42..47> --label <main|branch>-w<42..47>-oauth \
+  --models claude --no-log \
+  --results-dir <artifact>/oauth-bench/<main|branch>
+```
+
+The control used `2ec1a70df48f47449bcb728bdc9faef3f1081c7f`; the candidate
+used `6120f563e49a60f7364c7b061a7aafb01bbf0288`. The evaluator was the
+production dialogue judge (`backend/admin/cron_routes.py::_judge_dialogue`) at
+the corresponding source revision, routed through
+`claude-cli/anthropic/claude-opus-4.6`; dialogue used
+`claude-cli/anthropic/claude-haiku-4.5`.
+
+- Main: 4/6 PASS (W42, W44, W45, W46); W43 and W47 failed.
+- Candidate: 4/6 PASS (W42, W43, W44, W46); W45 and W47 failed.
+- The candidate rescued W43 but broke W45.
+- Mean guard deltas (candidate minus main): title fidelity +0.17; technical
+  credibility -0.33; arc resolution +0.00; turn-taking +0.00.
+- Additional means: voice distinctiveness +0.00; natural progression +0.00.
+- Calls: 24 subscription calls across 12 benches; provider cost $0.
+
+**Decision:** HOLD / DO NOT SHIP. The candidate did not raise the pass rate and
+regressed a preregistered guard. There is no two-week production remeasurement
+because the change did not enter production. Full result JSON is retained in
+the dated Saga artifact
+`artifacts/2026-11-16/muffin-dialogue-role-shift/oauth-bench/`. Exact receipt
+names and SHA-256 hashes are:
+
+```text
+main/W42  bench-main-w42-oauth-20261117T044017Z.json  2f8e279a95596f307da2c353da120b5b943cca2613d117a2babcfa1c42656aa5
+main/W43  bench-main-w43-oauth-20261117T043847Z.json  a54cf7d6a09811b89e6f4beb96b9d55d6f2a054def07550cb11a14cbd2e1eb06
+main/W44  bench-main-w44-oauth-20261117T043619Z.json  2ac28fa9bc7a8d015674138cc4850d4777cc79caaf4565bc82e0e05839851347
+main/W45  bench-main-w45-oauth-20261117T043359Z.json  b3b1e8ba3184ea0e8e896282f4852ef3c60d1d392565485993ce68d0b9afed8c
+main/W46  bench-main-w46-oauth-20261117T043039Z.json  4e611c22f4ecff7667e98d6678d275bbb3d9cdf9acc642ec6eff1a53dcab3e5d
+main/W47  bench-main-w47-oauth-20261117T042912Z.json  6c3ac879772590de57acc096917c0f3a92c87809bdd6080ddd97f4e46d6c2e27
+branch/W42  bench-branch-w42-oauth-20261117T045536Z.json  bd23fb0056b47de532c8f64ea2b6d6d1184a4e3fc68ddb07d9025d49c7bddb43
+branch/W43  bench-branch-w43-oauth-20261117T045233Z.json  d066ac10a555b79210b66395c5e9a67c387fba136c0e28e0415e76a536194a0c
+branch/W44  bench-branch-w44-oauth-20261117T045106Z.json  85ba32f97baf0d16a28443006984952d63e163869d77c0b5c93270606ec35151
+branch/W45  bench-branch-w45-oauth-20261117T044854Z.json  342a46eda948eb61d24645915a3b16e3376f270f624e108c29fb40c4ed97b372
+branch/W46  bench-branch-w46-oauth-20261117T044611Z.json  60cb12cfd513479e05ddd39bdaf865372282fba9a9375761a0a41427d736da3e
+branch/W47  bench-branch-w47-oauth-20261117T044351Z.json  40b9d69038bfe9e4591359b1f17984ae03076e9c23c41b4b06db97f6bf6f4e43
+```
+
+## 2026-11-17 — Monday question-ownership pilot (#116029271227658240), PREREGISTERED
+
+**Status: HOLD / DO NOT SHIP.** This was a new, narrower lever after
+`monday-role-shift-v1` tied the control and reduced technical credibility.
+That failed result remains unchanged above.
+
+**Experiment version:** `monday-question-ownership-v1`.
+
+**Exact candidate wording** (appended to Monday's existing meeting objective;
+all other days and Monday's completion signal stay unchanged):
+
+> Let someone other than the usual authority introduce the scene's decisive recipe question; let the recipe method, not status, determine the answer.
+
+The complete objective changed from:
+
+> Decide which concept the team is making this week
+
+to:
+
+> Decide which concept the team is making this week. Let someone other than the usual authority introduce the scene's decisive recipe question; let the recipe method, not status, determine the answer.
+
+**Why.** The first pilot asked a character to occupy an unfamiliar role, which
+could also invite that character to assert unfamiliar technical authority. The
+new lever changes who introduces the problem, not who is allowed to know the
+answer. Recipe-method evidence remains the authority.
+
+**Expected effect.** Fewer Monday scenes that open with Margaret supplying the
+answer and Steph moderating everyone toward it; more scenes where another
+character creates the consequential question and the team resolves it from the
+actual recipe facts.
+
+**Scope.** Monday whole-scene author objective only. No personality, roster,
+model, provider, image, judge, completion-signal, or publication change.
+
+**Method.** Frozen testbed v3, seven scenarios, two paired control/candidate
+runs per scenario (14 pairs). Dialogue and both position-swapped blind judge
+orientations use the existing local Claude OAuth transport. Primary target is
+`turn_taking`. Guards are `technical_credibility`, `title_fidelity`,
+`arc_resolution`, and adjacency/question-answer completion. The candidate must
+win the target in at least 65% of judged pairs and cannot lose any guard in more
+than 50% of pairs. A tie, incomplete run, or guard regression is HOLD.
+
+The prose preregistration did not define a per-pair aggregation or direction for
+the adjacency/question-answer guard. That makes this named guard unevaluable as
+a ship criterion; no post-result rule is substituted. The harness's generic
+recorded decision rule also guarded every non-target judge dimension, which is
+broader than the named prose guards. These mismatches independently prevent a
+SHIP decision even if the run had completed.
+
+Historical implementation/preregistration commit:
+`9b39ed93d569383575ae782c071beb8bd3ff23f1`. It is an ancestor of this
+experiment-record branch and contains the exact `DAY_MEETING_GOAL` test hook,
+variant handling, scope test, and frozen preregistration. The held hook and test
+were removed in result commit
+`553488a8d0bf5f21ed32f87f537b376cce191455`.
+
+The frozen testbed was `docs/conversation-lab/testbed-v3.json`, SHA-256
+`2dfa7bebfe903967db9c8b9e89f66e58ac029a9c848059a079e9a15d291f5612`.
+The live command was:
+
+```text
+uv run scripts/conversation_lab.py ab --stage monday --runs 2 --testbed \
+  --variant <artifact>/variant.json --target turn_taking --models claude \
+  --max-calls 56 --no-log --results-dir <artifact>/live
+```
+
+Dialogue used `anthropic/claude-haiku-4.5`; the position-swapped pairwise
+evaluator used `anthropic/claude-opus-4.6` through `claude-cli`, evaluator
+version `pairwise-v2-candidate-versions-character-rules`, prompt SHA-256
+`c6570e4d93e3470eff97f779e4998b4aec0f8c04e6499f46c402c0af50d67329`.
+
+**Rollback.** If shipped, revert when the first live-week confirmation or the
+two-week remeasurement regresses any guard or fails to move the target. Do not
+stack another live lever inside that two-week window.
+
+**Results.** The local OAuth run completed four of the planned fourteen pairs
+before the explicit 56-call ceiling refused the next worst-case reservation.
+The lab spent 17 subscription calls and $0 provider cost; no images or
+production data were created. The result is intentionally classified as
+incomplete, not extrapolated to the full panel.
+
+The explicit ceiling was an experiment-design error: 56 represented nominal
+expected calls, but the harness admits work using structural worst-case
+reservations. For Monday it reserves 40 calls for each control arm, 40 for each
+candidate arm, and 6 for both judge orientations. Fourteen pairs therefore
+required the harness-derived ceiling of 1,204 calls. With 17 actual calls
+already spent, the next 40-call arm could not fit under 56. Completion of the
+planned panel was structurally impossible under the supplied cap, not stopped
+by an unusual retry burst. The preregistered incomplete-run rule still makes
+HOLD independently correct.
+
+- Turn-taking: candidate 3, tie 1, control 0 (75% candidate wins).
+- Voice distinctiveness: candidate 1, control 3 (75% control wins).
+- Technical credibility: candidate 3, tie 1, control 0.
+- Overall: candidate 3, control 1.
+- The run covered two scenarios completely; the third stopped before a pair
+  completed. Four scenarios were never reached.
+- The named offline adjacency/question-answer guard was not operationalized.
+  Post-result diagnostics were mixed: adjacency mean overlap -0.0083,
+  adjacency share with a link -0.1607, question count -0.25, and QA rate
+  +0.1667 (candidate minus control). These are descriptive only, not a
+  retroactive pass/fail rule.
+
+**Decision:** HOLD / DO NOT SHIP. The preregistration says an incomplete run is
+HOLD. That rule is independently sufficient. The available evidence also shows
+a 75% voice-distinctiveness loss, but voice distinctiveness was not one of the
+named prose guards and is recorded only as an exploratory adverse signal. The
+generic harness rule would also reject it because that rule guards every
+non-target judge dimension. The lab has no safe resume mode; a new full run
+would regenerate the four finished pairs. Do not spend duplicate calls trying
+to rescue this candidate. The test-only `DAY_MEETING_GOAL` variant hook was
+removed from the effective code diff. Production remains unchanged.
+
+Exact receipts under
+`artifacts/2026-11-17/muffin-dialogue-question-ownership/` and SHA-256 hashes:
+
+```text
+variant.json  e79ee9f449538003ad731ca653e0d0743cf480997f302f5eccac977779ba54dd
+dry-run/20261117T061408Z-ab-testbed-claude-variant.json  9f068aaf8539b51565ed0892d3af204f0e9ac39c5809f5d6cb9bfb7e23b73a41
+live/20261117T061431Z-ab-testbed-claude-variant.json  642c029286bc93b79f87dfab58a9b4e8c7ac8c71f5d622ba20b54135b2af7763
+```
+
 ## Benchmarks
 
 
