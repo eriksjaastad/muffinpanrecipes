@@ -139,9 +139,14 @@ a character's full system prompt from their persona card, voice guide, and
 `_SHARED_CHARACTER_RULES`. Per-character voice tuning happens upstream of
 this function, in the voice guides it reads.
 - `DAY_STAGE_DIRECTIONS` - `scripts/simulate_dialogue_week.py:134`. The
-one-line scene-setting direction for each day of the week (Monday's
-"Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
-the lever for changing what a day is *about*.
+  one-line scene-setting direction for each day of the week (Monday's
+  "Slack pings stack up...", Wednesday's lighting-test debate, etc). This is
+  the lever for changing what a day is *about*.
+- `DAY_MEETING_GOAL` - `scripts/simulate_dialogue_week.py:56`. The objective
+  supplied to the whole-scene author for each day. This is the lever for a
+  narrow author-mode experiment about how the meeting reaches its decision;
+  keep the existing completion signal unchanged unless that signal itself is
+  the single preregistered lever.
 - `CHARACTER_DAY_GOALS` - `scripts/simulate_dialogue_week.py:78`. Per-day,
 per-character goals (e.g. Monday's Margaret: "You have strong feelings
 about whether this concept respects the craft."). This is the lever for

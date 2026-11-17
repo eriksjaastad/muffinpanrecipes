@@ -69,7 +69,7 @@ Five subcommands:
       documented, useful levers (docs/conversation-lab/PROTOCOL.md's "Where
       the levers live"). The lever set spans the character-prompt levers
       (_SHARED_CHARACTER_RULES, _REACTION_DIRECTIVE, DAY_STAGE_DIRECTIONS,
-      CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
+      DAY_MEETING_GOAL, CHARACTER_DAY_GOALS), the history window HISTORY_DEPTH, the
       output-contract guards (SHAPE_WINDOW, SHAPE_MAX_IN_WINDOW,
       WORD_BUDGET_TOLERANCE, REWRITE_GUARDS, WORD_CAPS), the wind-down/stop knobs (TICKS_RANGE,
       WINDDOWN_TRIGGER, STOP_CHECK, OPEN_ENDED_MAX_TICKS), and the director
@@ -445,6 +445,7 @@ ALLOWED_VARIANT_ATTRS: tuple[str, ...] = (
     "_SHARED_CHARACTER_RULES",
     "_REACTION_DIRECTIVE",
     "DAY_STAGE_DIRECTIONS",
+    "DAY_MEETING_GOAL",
     "CHARACTER_DAY_GOALS",
     # #7158: the history window was a local in generate_turn, so #7160 could not be
     # measured here at all. Shape is {"early"|"late": (opening_turn, later_turns)}.

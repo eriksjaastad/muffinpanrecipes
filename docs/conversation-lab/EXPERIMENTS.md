@@ -1030,6 +1030,44 @@ regressed a preregistered guard. There is no two-week production remeasurement
 because the change did not enter production. Full result JSON is retained in
 the dated Saga artifact `muffin-dialogue-role-shift/oauth-bench/`.
 
+## 2026-11-17 — Monday question-ownership pilot (#116029271227658240), PREREGISTERED
+
+**Status: RUNNING.** This is a new, narrower lever after
+`monday-role-shift-v1` tied the control and reduced technical credibility.
+That failed result remains unchanged above.
+
+**Experiment version:** `monday-question-ownership-v1`.
+
+**Exact candidate wording** (appended to Monday's existing meeting objective;
+all other days and Monday's completion signal stay unchanged):
+
+> Let someone other than the usual authority introduce the scene's decisive recipe question; let the recipe method, not status, determine the answer.
+
+**Why.** The first pilot asked a character to occupy an unfamiliar role, which
+could also invite that character to assert unfamiliar technical authority. The
+new lever changes who introduces the problem, not who is allowed to know the
+answer. Recipe-method evidence remains the authority.
+
+**Expected effect.** Fewer Monday scenes that open with Margaret supplying the
+answer and Steph moderating everyone toward it; more scenes where another
+character creates the consequential question and the team resolves it from the
+actual recipe facts.
+
+**Scope.** Monday whole-scene author objective only. No personality, roster,
+model, provider, image, judge, completion-signal, or publication change.
+
+**Method.** Frozen testbed v3, seven scenarios, two paired control/candidate
+runs per scenario (14 pairs). Dialogue and both position-swapped blind judge
+orientations use the existing local Claude OAuth transport. Primary target is
+`turn_taking`. Guards are `technical_credibility`, `title_fidelity`,
+`arc_resolution`, and adjacency/question-answer completion. The candidate must
+win the target in at least 65% of judged pairs and cannot lose any guard in more
+than 50% of pairs. A tie, incomplete run, or guard regression is HOLD.
+
+**Rollback.** If shipped, revert when the first live-week confirmation or the
+two-week remeasurement regresses any guard or fails to move the target. Do not
+stack another live lever inside that two-week window.
+
 ## Benchmarks
 
 

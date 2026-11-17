@@ -122,6 +122,30 @@ def test_apply_and_restore_variant_round_trips():
     cl._restore_variant(sdw, saved)
     assert sdw._SHARED_CHARACTER_RULES == original
 
+
+def test_day_meeting_goal_variant_reaches_author_prompt_and_restores():
+    original = sdw.DAY_MEETING_GOAL
+    replacement = {
+        **original,
+        "monday": {
+            **original["monday"],
+            "objective": "Let recipe evidence settle the decisive question",
+        },
+    }
+
+    saved = cl._apply_variant(sdw, {"DAY_MEETING_GOAL": replacement})
+    try:
+        prompt = sdw._author_prompt(
+            personas={}, names=[], concept="Test cups", day="monday",
+            recipe_context="Test recipe", recipe_facts="Bake until set",
+            event=None, highlights=[], recent_lines=[], length_target=None,
+        )
+        assert "Task: Let recipe evidence settle the decisive question" in prompt
+    finally:
+        cl._restore_variant(sdw, saved)
+
+    assert sdw.DAY_MEETING_GOAL is original
+
 def test_apply_variant_clears_prompt_cache():
     sdw._system_prompt_cache["Margaret Chen"] = "stale cached prompt"
     saved = cl._apply_variant(sdw, {"_SHARED_CHARACTER_RULES": "VARIANT TEXT"})
