@@ -1152,6 +1152,16 @@ The lab spent 17 subscription calls and $0 provider cost; no images or
 production data were created. The result is intentionally classified as
 incomplete, not extrapolated to the full panel.
 
+The explicit ceiling was an experiment-design error: 56 represented nominal
+expected calls, but the harness admits work using structural worst-case
+reservations. For Monday it reserves 40 calls for each control arm, 40 for each
+candidate arm, and 6 for both judge orientations. Fourteen pairs therefore
+required the harness-derived ceiling of 1,204 calls. With 17 actual calls
+already spent, the next 40-call arm could not fit under 56. Completion of the
+planned panel was structurally impossible under the supplied cap, not stopped
+by an unusual retry burst. The preregistered incomplete-run rule still makes
+HOLD independently correct.
+
 - Turn-taking: candidate 3, tie 1, control 0 (75% candidate wins).
 - Voice distinctiveness: candidate 1, control 3 (75% control wins).
 - Technical credibility: candidate 3, tie 1, control 0.
