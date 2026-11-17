@@ -1032,7 +1032,7 @@ the dated Saga artifact `muffin-dialogue-role-shift/oauth-bench/`.
 
 ## 2026-11-17 — Monday question-ownership pilot (#116029271227658240), PREREGISTERED
 
-**Status: RUNNING.** This is a new, narrower lever after
+**Status: HOLD / DO NOT SHIP.** This was a new, narrower lever after
 `monday-role-shift-v1` tied the control and reduced technical credibility.
 That failed result remains unchanged above.
 
@@ -1067,6 +1067,26 @@ than 50% of pairs. A tie, incomplete run, or guard regression is HOLD.
 **Rollback.** If shipped, revert when the first live-week confirmation or the
 two-week remeasurement regresses any guard or fails to move the target. Do not
 stack another live lever inside that two-week window.
+
+**Results.** The local OAuth run completed four of the planned fourteen pairs
+before the explicit 56-call ceiling refused the next worst-case reservation.
+The lab spent 17 subscription calls and $0 provider cost; no images or
+production data were created. The result is intentionally classified as
+incomplete, not extrapolated to the full panel.
+
+- Turn-taking: candidate 3, tie 1, control 0 (75% candidate wins).
+- Voice distinctiveness: candidate 1, control 3 (75% control wins).
+- Technical credibility: candidate 3, tie 1, control 0.
+- Overall: candidate 3, control 1.
+- The run covered two scenarios completely; the third stopped before a pair
+  completed. Four scenarios were never reached.
+
+**Decision:** HOLD / DO NOT SHIP. The preregistration says an incomplete run is
+HOLD, and the available evidence also shows a 75% voice-distinctiveness guard
+loss. The lab has no safe resume mode; a new full run would regenerate the four
+finished pairs. Do not spend duplicate calls trying to rescue this candidate.
+The test-only `DAY_MEETING_GOAL` variant hook was removed from the effective
+code diff. Production remains unchanged.
 
 ## Benchmarks
 
