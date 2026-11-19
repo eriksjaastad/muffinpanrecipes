@@ -82,6 +82,13 @@ def replay(
     ):
         if isinstance(value, bool) or not 0 <= value <= 1:
             raise ReplayError(f"{name} must be between 0 and 1")
+    if source.get("prior_days") is not None:
+        raise ReplayError(
+            "source result used seeded prior days, which are not embedded in each pair"
+        )
+    source_stage = source.get("stage")
+    if source_stage not in simulate_module.DAY_MEETING_GOAL:
+        raise ReplayError(f"source result has unsupported stage: {source_stage!r}")
     pairs = source.get("pairs")
     if not isinstance(pairs, list):
         raise ReplayError("source result has no pairs list")
@@ -104,6 +111,10 @@ def replay(
 
         lines, haiku_model = _scored_transcript(messages, final_tick=final_tick)
         day = final_jev.get("day")
+        if day != source_stage:
+            raise ReplayError(
+                f"Jev verdict day {day!r} does not match source stage {source_stage!r}"
+            )
         goal = simulate_module.DAY_MEETING_GOAL.get(day)
         if goal is None:
             raise ReplayError(f"unsupported replay day: {day!r}")
@@ -176,6 +187,8 @@ def replay(
         ),
         "incumbent_answer_retained": True,
         "production_behavior_changed": False,
+        "source_prior_days_seeded": False,
+        "source_stage": source_stage,
         "thresholds": {
             "decided": decided_threshold,
             "pushback": pushback_threshold,

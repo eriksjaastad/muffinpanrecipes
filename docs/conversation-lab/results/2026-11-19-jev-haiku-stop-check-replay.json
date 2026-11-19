@@ -142,5 +142,7 @@
       "agrees_on_done": null
     }
   ],
-  "source_sha256": "23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0"
+  "source_sha256": "23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0",
+  "source_prior_days_seeded": false,
+  "source_stage": "wednesday"
 }

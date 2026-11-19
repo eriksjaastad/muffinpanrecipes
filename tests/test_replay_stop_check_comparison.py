@@ -7,6 +7,7 @@ from scripts import replay_stop_check_comparison as replay
 
 def _source() -> dict:
     return {
+        "stage": "wednesday",
         "pairs": [
             {
                 "scenario_id": "2026-W36",
@@ -134,4 +135,22 @@ def test_replay_refuses_non_jev_final_verdict(monkeypatch):
     monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
 
     with pytest.raises(replay.ReplayError, match="not from Jev"):
+        _replay(source)
+
+
+def test_replay_refuses_unembedded_seeded_prior_days(monkeypatch):
+    source = _source()
+    source["prior_days"] = {"path": "frozen.json", "sha256": "abc"}
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
+
+    with pytest.raises(replay.ReplayError, match="used seeded prior days"):
+        _replay(source)
+
+
+def test_replay_requires_verdict_day_to_match_source_stage(monkeypatch):
+    source = _source()
+    source["stage"] = "tuesday"
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
+
+    with pytest.raises(replay.ReplayError, match="does not match source stage"):
         _replay(source)
