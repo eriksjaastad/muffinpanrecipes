@@ -1,5 +1,5 @@
 {
-  "method": "messages through each final Jev tick replayed once through the same Haiku dialogue model",
+  "method": "messages through each final Jev tick replayed once through the same Haiku dialogue model; fenced JSON recovered offline after bounded parser fix",
   "incumbent_answer_retained": true,
   "production_behavior_changed": false,
   "thresholds": {
@@ -10,10 +10,10 @@
   "requested_sample_cap": 3,
   "systematic_error_stop": 3,
   "sample_count": 3,
-  "comparable_count": 0,
-  "haiku_error_count": 3,
-  "agreement_count": 0,
-  "agreement_rate": null,
+  "comparable_count": 3,
+  "haiku_error_count": 0,
+  "agreement_count": 2,
+  "agreement_rate": 0.6666666666666666,
   "samples": [
     {
       "scenario_id": "2026-W36",
@@ -57,9 +57,16 @@
         "done": true,
         "model": "typesafe/jev-1.13-20260917"
       },
-      "haiku": null,
-      "haiku_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 1, \"pushback\": 1}\\n```'",
-      "agrees_on_done": null
+      "haiku": {
+        "decided": 1,
+        "pushback": 1,
+        "done": true,
+        "model": "openrouter/anthropic/claude-haiku-4.5"
+      },
+      "haiku_error": null,
+      "agrees_on_done": true,
+      "haiku_raw_format_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 1, \"pushback\": 1}\\n```'",
+      "recovered_offline": true
     },
     {
       "scenario_id": "2026-W36",
@@ -91,9 +98,16 @@
         "done": true,
         "model": "typesafe/jev-1.13-20260917"
       },
-      "haiku": null,
-      "haiku_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 1, \"pushback\": 0}\\n```'",
-      "agrees_on_done": null
+      "haiku": {
+        "decided": 1,
+        "pushback": 0,
+        "done": false,
+        "model": "openrouter/anthropic/claude-haiku-4.5"
+      },
+      "haiku_error": null,
+      "agrees_on_done": false,
+      "haiku_raw_format_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 1, \"pushback\": 0}\\n```'",
+      "recovered_offline": true
     },
     {
       "scenario_id": "2026-W32",
@@ -137,12 +151,26 @@
         "done": false,
         "model": "typesafe/jev-1.13-20260917"
       },
-      "haiku": null,
-      "haiku_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 0, \"pushback\": 1}\\n```'",
-      "agrees_on_done": null
+      "haiku": {
+        "decided": 0,
+        "pushback": 1,
+        "done": false,
+        "model": "openrouter/anthropic/claude-haiku-4.5"
+      },
+      "haiku_error": null,
+      "agrees_on_done": true,
+      "haiku_raw_format_error": "haiku stop check returned malformed JSON: '```json\\n{\"decided\": 0, \"pushback\": 1}\\n```'",
+      "recovered_offline": true
     }
   ],
   "source_sha256": "23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0",
   "source_prior_days_seeded": false,
-  "source_stage": "wednesday"
+  "source_stage": "wednesday",
+  "recovery": {
+    "offline": true,
+    "additional_model_calls": 0,
+    "source": "verbatim response preserved in each prior haiku_error",
+    "accepted_wrapper": "one complete Markdown fence containing one JSON object"
+  },
+  "disagreement_count": 1
 }

@@ -274,8 +274,23 @@ def _check_haiku(state: str, objective: str, haiku_model: str = HAIKU_MODEL) -> 
     except Exception as exc:
         raise StopCheckError(f"haiku stop check failed: {exc}") from exc
 
+    # Haiku occasionally follows the JSON-only instruction semantically but
+    # still wraps the object in one Markdown fence. Accept that one bounded
+    # wrapper for lab measurements; prose, multiple fences, and trailing text
+    # remain malformed.
+    json_text = raw
+    if raw.startswith("```") and raw.endswith("```"):
+        fence_lines = raw.splitlines()
+        if (
+            len(fence_lines) >= 3
+            and fence_lines[0] in {"```", "```json"}
+            and fence_lines[-1] == "```"
+            and all("```" not in line for line in fence_lines[1:-1])
+        ):
+            json_text = "\n".join(fence_lines[1:-1]).strip()
+
     try:
-        payload = json.loads(raw)
+        payload = json.loads(json_text)
     except json.JSONDecodeError as exc:
         raise StopCheckError(
             f"haiku stop check returned malformed JSON: {raw[:120]!r}"
