@@ -188,3 +188,23 @@ def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):
     result = _replay(source, max_samples=1, max_errors=1)
 
     assert result["sample_count"] == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("decided", None), ("pushback", "0.8"), ("model", "")],
+)
+def test_replay_validates_jev_fields_before_first_paid_call(monkeypatch, field, value):
+    source = _source()
+    invalid = {**source["pairs"][0], "run_index": 2}
+    invalid["variant_stop_check_log"] = [
+        {**source["pairs"][0]["variant_stop_check_log"][0], field: value}
+    ]
+    source["pairs"].append(invalid)
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match=f"final Jev {field}"):
+        _replay(source, max_samples=2, max_errors=2)
+
+    assert calls == []

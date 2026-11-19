@@ -95,6 +95,8 @@ def replay(
 
     candidates = []
     for pair in pairs:
+        if not isinstance(pair, dict):
+            raise ReplayError("every source pair must be an object")
         jev_log = pair.get("variant_stop_check_log")
         messages = pair.get("variant_messages")
         if not isinstance(jev_log, list) or not jev_log:
@@ -102,11 +104,24 @@ def replay(
         if not isinstance(messages, list):
             raise ReplayError("a Jev-scored pair has no variant_messages list")
         final_jev = jev_log[-1]
+        if not isinstance(final_jev, dict):
+            raise ReplayError("the final stop-check verdict must be an object")
         if final_jev.get("provider") != "jev":
             raise ReplayError("the final variant stop-check verdict is not from Jev")
         final_tick = final_jev.get("tick")
         if isinstance(final_tick, bool) or not isinstance(final_tick, int):
             raise ReplayError("the final Jev verdict has no integer tick")
+        for field in ("decided", "pushback"):
+            value = final_jev.get(field)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not 0 <= value <= 1
+            ):
+                raise ReplayError(f"the final Jev {field} must be a number between 0 and 1")
+        model = final_jev.get("model")
+        if not isinstance(model, str) or not model:
+            raise ReplayError("the final Jev model must be a non-empty string")
         lines, haiku_model = _scored_transcript(messages, final_tick=final_tick)
         day = final_jev.get("day")
         if day != source_stage:
