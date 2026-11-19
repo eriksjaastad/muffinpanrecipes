@@ -12,12 +12,26 @@ def _source() -> dict:
                 "scenario_id": "2026-W36",
                 "run_index": 1,
                 "variant_messages": [
-                    {"character": "Julian Torres", "message": "Use the side rake."},
-                    {"character": "Ria Castillo", "message": "Agreed. Side rake wins."},
+                    {
+                        "character": "Julian Torres",
+                        "message": "Use the side rake.",
+                        "model": "openrouter/anthropic/claude-haiku-4.5",
+                    },
+                    {
+                        "character": "Ria Castillo",
+                        "message": "Agreed. Side rake wins.",
+                        "model": "openrouter/anthropic/claude-haiku-4.5",
+                    },
+                    {
+                        "character": "Stephanie Whitmore",
+                        "message": "Closing message Jev never saw.",
+                        "model": "openrouter/anthropic/claude-haiku-4.5",
+                    },
                 ],
                 "variant_stop_check_log": [
                     {
                         "day": "wednesday",
+                        "tick": 1,
                         "provider": "jev",
                         "decided": 0.8,
                         "pushback": 0.6,
@@ -29,36 +43,52 @@ def _source() -> dict:
     }
 
 
-def test_replay_compares_same_transcript_and_reports_disagreement(monkeypatch):
+def _replay(source: dict, **overrides) -> dict:
+    kwargs = {
+        "max_samples": 1,
+        "max_errors": 1,
+        "decided_threshold": 0.7,
+        "pushback_threshold": 0.5,
+    }
+    kwargs.update(overrides)
+    return replay.replay(source, **kwargs)
+
+
+def test_replay_uses_only_messages_through_jev_tick_and_same_haiku_model(monkeypatch):
     seen = {}
 
-    def fake_check(lines, provider, *, day, objective):
-        seen.update(lines=lines, provider=provider, day=day, objective=objective)
-        return SimpleNamespace(
-            decided=0.4,
-            pushback=0.9,
-            model="anthropic/claude-haiku-4-5-20251001",
+    def fake_check(lines, provider, *, day, objective, haiku_model):
+        seen.update(
+            lines=lines,
+            provider=provider,
+            day=day,
+            objective=objective,
+            haiku_model=haiku_model,
         )
+        return SimpleNamespace(decided=0.4, pushback=0.9, model=haiku_model)
 
     monkeypatch.setattr(replay, "check_scene_done", fake_check)
-    result = replay.replay(_source(), max_samples=1)
+    result = _replay(_source())
 
     assert seen == {
         "lines": ["Julian: Use the side rake.", "Ria: Agreed. Side rake wins."],
         "provider": "haiku",
         "day": "wednesday",
         "objective": "Choose the hero shot",
+        "haiku_model": "openrouter/anthropic/claude-haiku-4.5",
     }
-    assert result["sample_count"] == 1
-    assert result["agreement_rate"] == 0
-    assert result["samples"][0]["jev"]["done"] is True
-    assert result["samples"][0]["haiku"]["done"] is False
-    assert result["samples"][0]["agrees_on_done"] is False
+    sample = result["samples"][0]
+    assert sample["source_message_count"] == 3
+    assert sample["scored_tick"] == 1
+    assert sample["scored_message_count"] == 2
+    assert sample["jev"]["done"] is True
+    assert sample["haiku"]["done"] is False
+    assert sample["agrees_on_done"] is False
 
 
 def test_replay_refuses_more_than_the_task_call_cap():
     with pytest.raises(replay.ReplayError, match="between 1 and 20"):
-        replay.replay(_source(), max_samples=21)
+        _replay(_source(), max_samples=21)
 
 
 def test_replay_requires_a_jev_scored_pair(monkeypatch):
@@ -67,19 +97,41 @@ def test_replay_requires_a_jev_scored_pair(monkeypatch):
     monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
 
     with pytest.raises(replay.ReplayError, match="no Jev-scored pairs"):
-        replay.replay(source, max_samples=1)
+        _replay(source)
 
 
-def test_replay_records_strict_json_failure_and_continues(monkeypatch):
+def test_replay_refuses_tick_beyond_available_messages(monkeypatch):
+    source = _source()
+    source["pairs"][0]["variant_stop_check_log"][-1]["tick"] = 3
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
+
+    with pytest.raises(replay.ReplayError, match="cannot index 3 variant messages"):
+        _replay(source)
+
+
+def test_replay_records_strict_json_failure_and_stops_at_error_limit(monkeypatch):
+    source = _source()
+    source["pairs"].append({**source["pairs"][0], "run_index": 2})
+
     def fail_check(*args, **kwargs):
         raise replay.StopCheckError("haiku stop check returned malformed JSON")
 
     monkeypatch.setattr(replay, "check_scene_done", fail_check)
-    result = replay.replay(_source(), max_samples=1)
+    result = _replay(source, max_samples=2, max_errors=1)
 
+    assert result["sample_count"] == 1
     assert result["comparable_count"] == 0
     assert result["haiku_error_count"] == 1
     assert result["agreement_rate"] is None
     assert result["samples"][0]["haiku"] is None
     assert result["samples"][0]["agrees_on_done"] is None
     assert "malformed JSON" in result["samples"][0]["haiku_error"]
+
+
+def test_replay_refuses_non_jev_final_verdict(monkeypatch):
+    source = _source()
+    source["pairs"][0]["variant_stop_check_log"][-1]["provider"] = "haiku"
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: None)
+
+    with pytest.raises(replay.ReplayError, match="not from Jev"):
+        _replay(source)
