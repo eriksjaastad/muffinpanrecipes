@@ -32,7 +32,11 @@ used below. The corrected pilot stopped after three repeated Haiku format errors
 The three replay inputs and their SHA-256 values are preserved in the JSON receipt.
 The original historical result remains an ignored MacBook-local lab artifact; its full
 file SHA-256 is recorded, but the repository does not claim the source file itself is
-reproducible from Git.
+reproducible from Git. The 0.7/0.5 thresholds were supplied explicitly from the
+historical variant file rather than embedded in the source result, so the receipt records
+them as operator inputs. This pilot samples only each run's final Jev state; even with
+valid Haiku output it would measure trigger-state agreement, not earlier false negatives
+or overall accuracy.
 
 ## Human review and answer-presence split
 

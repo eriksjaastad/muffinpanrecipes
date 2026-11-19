@@ -154,3 +154,37 @@ def test_replay_requires_verdict_day_to_match_source_stage(monkeypatch):
 
     with pytest.raises(replay.ReplayError, match="does not match source stage"):
         _replay(source)
+
+
+def test_replay_validates_all_pairs_before_first_paid_call(monkeypatch):
+    source = _source()
+    invalid = {**source["pairs"][0], "run_index": 2}
+    invalid["variant_stop_check_log"] = [
+        {**source["pairs"][0]["variant_stop_check_log"][0], "provider": "haiku"}
+    ]
+    source["pairs"].append(invalid)
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match="not from Jev"):
+        _replay(source, max_samples=2, max_errors=2)
+
+    assert calls == []
+
+
+def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):
+    source = _source()
+    source["pairs"].append({**source["pairs"][0], "run_index": 2})
+    monkeypatch.setattr(
+        replay,
+        "check_scene_done",
+        lambda *args, **kwargs: SimpleNamespace(
+            decided=0.8,
+            pushback=0.6,
+            model="openrouter/anthropic/claude-haiku-4.5",
+        ),
+    )
+
+    result = _replay(source, max_samples=1, max_errors=1)
+
+    assert result["sample_count"] == 1

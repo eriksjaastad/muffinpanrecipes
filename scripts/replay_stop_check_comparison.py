@@ -93,8 +93,7 @@ def replay(
     if not isinstance(pairs, list):
         raise ReplayError("source result has no pairs list")
 
-    samples = []
-    error_count = 0
+    candidates = []
     for pair in pairs:
         jev_log = pair.get("variant_stop_check_log")
         messages = pair.get("variant_messages")
@@ -108,17 +107,38 @@ def replay(
         final_tick = final_jev.get("tick")
         if isinstance(final_tick, bool) or not isinstance(final_tick, int):
             raise ReplayError("the final Jev verdict has no integer tick")
-
         lines, haiku_model = _scored_transcript(messages, final_tick=final_tick)
         day = final_jev.get("day")
         if day != source_stage:
             raise ReplayError(
                 f"Jev verdict day {day!r} does not match source stage {source_stage!r}"
             )
-        goal = simulate_module.DAY_MEETING_GOAL.get(day)
-        if goal is None:
-            raise ReplayError(f"unsupported replay day: {day!r}")
-        objective = goal["objective"]
+        candidates.append(
+            {
+                "pair": pair,
+                "messages": messages,
+                "final_jev": final_jev,
+                "final_tick": final_tick,
+                "lines": lines,
+                "haiku_model": haiku_model,
+                "day": day,
+                "objective": simulate_module.DAY_MEETING_GOAL[day]["objective"],
+            }
+        )
+    if not candidates:
+        raise ReplayError("source result has no Jev-scored pairs")
+
+    samples = []
+    error_count = 0
+    for candidate in candidates[:max_samples]:
+        pair = candidate["pair"]
+        messages = candidate["messages"]
+        final_jev = candidate["final_jev"]
+        final_tick = candidate["final_tick"]
+        lines = candidate["lines"]
+        haiku_model = candidate["haiku_model"]
+        day = candidate["day"]
+        objective = candidate["objective"]
 
         haiku_verdict = None
         haiku_error = None
@@ -173,7 +193,7 @@ def replay(
                 ),
             }
         )
-        if len(samples) == max_samples or error_count == max_errors:
+        if error_count == max_errors:
             break
 
     if not samples:
