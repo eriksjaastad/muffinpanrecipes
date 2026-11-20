@@ -43,6 +43,8 @@ def _scored_transcript(
     lines = []
     models = set()
     for message in messages[:scored_count]:
+        if not isinstance(message, dict):
+            raise ReplayError("every scored message must be a JSON object")
         character = message.get("character")
         text_value = message.get("message")
         model = message.get("model")
