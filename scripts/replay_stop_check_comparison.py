@@ -50,6 +50,7 @@ def _scored_transcript(
             not isinstance(character, str)
             or not character
             or not isinstance(text_value, str)
+            or not text_value
             or not isinstance(model, str)
             or not model
         ):

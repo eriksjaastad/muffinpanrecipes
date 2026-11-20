@@ -172,6 +172,18 @@ def test_replay_validates_all_pairs_before_first_paid_call(monkeypatch):
     assert calls == []
 
 
+def test_replay_rejects_empty_scored_message_before_first_paid_call(monkeypatch):
+    source = _source()
+    source["pairs"][0]["variant_messages"][1]["message"] = ""
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match="non-empty character, message, and model"):
+        _replay(source)
+
+    assert calls == []
+
+
 def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):
     source = _source()
     source["pairs"].append({**source["pairs"][0], "run_index": 2})
