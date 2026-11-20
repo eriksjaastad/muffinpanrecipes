@@ -50,11 +50,11 @@ def _scored_transcript(
         model = message.get("model")
         if (
             not isinstance(character, str)
-            or not character
+            or not character.strip()
             or not isinstance(text_value, str)
-            or not text_value
+            or not text_value.strip()
             or not isinstance(model, str)
-            or not model
+            or not model.strip()
         ):
             raise ReplayError(
                 "every scored message needs non-empty character, message, and model strings"

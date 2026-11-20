@@ -184,6 +184,19 @@ def test_replay_rejects_empty_scored_message_before_first_paid_call(monkeypatch)
     assert calls == []
 
 
+@pytest.mark.parametrize("field", ["character", "message", "model"])
+def test_replay_rejects_whitespace_only_scored_field_before_first_paid_call(monkeypatch, field):
+    source = _source()
+    source["pairs"][0]["variant_messages"][1][field] = " \t\n"
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match="non-empty character, message, and model"):
+        _replay(source)
+
+    assert calls == []
+
+
 def test_replay_rejects_non_object_scored_message_before_first_paid_call(monkeypatch):
     source = _source()
     source["pairs"][0]["variant_messages"][1] = None
