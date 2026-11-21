@@ -6,9 +6,10 @@ Card: Project Tracker #116958587964780544
 
 Built and tested a bounded lab-only replay that reconstructs the exact transcript state
 Jev scored: messages are truncated through the final logged tick (`tick + 1`), the
-objective comes from the repository's day configuration, and Haiku uses the dialogue
-model recorded on those messages. This historical result has no `prior_days` provenance
-(the lab writes that field whenever seeded earlier-day context is used), so there are no
+objective is the historical value the operator passes with `--objective`, not the
+current day configuration, and Haiku uses the dialogue model recorded on those messages.
+This historical result has no `prior_days` provenance (the lab writes that field whenever
+seeded earlier-day context is used), so there are no
 unembedded seed lines. The harness now refuses any result that does have seeded prior
 days. The lab's `_run_arm` fixes `character_models=None`, so the one model recorded on
 the scored messages is the same `default_model` passed to the stop check. The replay
