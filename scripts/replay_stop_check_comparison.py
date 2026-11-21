@@ -252,6 +252,8 @@ def main() -> None:
     parser.add_argument("--decided-threshold", type=float, required=True)
     parser.add_argument("--pushback-threshold", type=float, required=True)
     args = parser.parse_args()
+    if args.output.exists():
+        raise ReplayError(f"output already exists and will not be overwritten: {args.output}")
     source_bytes = args.source.read_bytes()
     result = replay(
         json.loads(source_bytes),

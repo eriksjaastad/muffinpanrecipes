@@ -1,3 +1,5 @@
+import json
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -207,6 +209,26 @@ def test_replay_rejects_non_object_scored_message_before_first_paid_call(monkeyp
         _replay(source)
 
     assert calls == []
+
+
+def test_cli_refuses_existing_output_before_any_paid_call(monkeypatch, tmp_path):
+    source_path = tmp_path / "source.json"
+    source_path.write_text(json.dumps(_source()))
+    output_path = tmp_path / "receipt.json"
+    output_path.write_bytes(b'{"paid": "receipt"}\n')
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["replay", str(source_path), str(output_path), "--decided-threshold", "0.7", "--pushback-threshold", "0.5"],
+    )
+
+    with pytest.raises(replay.ReplayError, match="will not be overwritten"):
+        replay.main()
+
+    assert calls == []
+    assert output_path.read_bytes() == b'{"paid": "receipt"}\n'
 
 
 def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):
