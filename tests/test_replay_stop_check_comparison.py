@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from backend.utils import model_router
 from scripts import replay_stop_check_comparison as replay
 
 
@@ -52,6 +53,7 @@ def _replay(source: dict, **overrides) -> dict:
         "max_errors": 1,
         "decided_threshold": 0.7,
         "pushback_threshold": 0.5,
+        "require_pushback": True,
     }
     kwargs.update(overrides)
     return replay.replay(source, **kwargs)
@@ -87,9 +89,73 @@ def test_replay_uses_only_messages_through_jev_tick_and_same_haiku_model(monkeyp
     assert sample["jev"]["done"] is True
     assert sample["haiku"]["done"] is False
     assert sample["agrees_on_done"] is False
+    assert result["thresholds"]["require_pushback"] is True
 
 
-def test_replay_refuses_more_than_the_task_call_cap():
+def test_cli_require_pushback_false_ignores_pushback_in_done_and_receipt(monkeypatch, tmp_path):
+    source = _source()
+    # Jev: decided passes, pushback fails. Haiku: both pass. Only the pushback
+    # rule separates them, so disabling it must make both done and agree.
+    source["pairs"][0]["variant_stop_check_log"][-1]["pushback"] = 0.1
+    source_path = tmp_path / "source.json"
+    source_path.write_text(json.dumps(source))
+    output_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        replay,
+        "check_scene_done",
+        lambda *args, **kwargs: SimpleNamespace(
+            decided=0.9, pushback=0.6, model="openrouter/anthropic/claude-haiku-4.5"
+        ),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "replay", str(source_path), str(output_path),
+            "--decided-threshold", "0.7", "--pushback-threshold", "0.5",
+            "--no-require-pushback",
+        ],
+    )
+
+    replay.main()
+
+    receipt = json.loads(output_path.read_text())
+    sample = receipt["samples"][0]
+    assert receipt["thresholds"]["require_pushback"] is False
+    assert sample["jev"]["done"] is True
+    assert sample["haiku"]["done"] is True
+    assert sample["agrees_on_done"] is True
+
+
+def test_replay_attempt_budget_counts_empty_stop_retries_and_refuses_21st(monkeypatch):
+    # Each sample's empty-stop reply makes 3 provider attempts, so the 7th
+    # sample needs attempts 19-21. Only 20 may be sent.
+    source = _source()
+    source["pairs"] = [{**source["pairs"][0], "run_index": i} for i in range(1, 8)]
+    sent = []
+    prior_calls = []
+
+    def empty_stop(client, model, messages, temperature):
+        sent.append(model)
+        return "", "stop", 1
+
+    def prior_hook(provider, model, prompt_bytes):
+        prior_calls.append(model)
+
+    monkeypatch.setattr(model_router, "_PRE_CALL_HOOK", None)
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(model_router, "_openrouter_attempt", empty_stop)
+    prior = model_router.set_pre_call_hook(prior_hook)
+    assert prior is None
+
+    result = _replay(source, max_samples=7, max_errors=7)
+
+    assert len(sent) == replay.MAX_REPLAY_CALLS == len(prior_calls)
+    assert result["call_budget_exhausted"] is True
+    assert result["model_call_attempts"] == 20
+    assert result["sample_count"] == 6
+    assert result["haiku_error_count"] == 6
+    assert model_router._PRE_CALL_HOOK is prior_hook
     with pytest.raises(replay.ReplayError, match="between 1 and 20"):
         _replay(_source(), max_samples=21)
 

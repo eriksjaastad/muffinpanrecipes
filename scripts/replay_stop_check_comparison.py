@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+from backend.utils import model_router
 from backend.utils.stop_check import StopCheckError, check_scene_done
 from scripts import simulate_dialogue_week as simulate_module
 
@@ -18,15 +20,46 @@ class ReplayError(RuntimeError):
     """The source result cannot support a bounded same-input replay."""
 
 
+class ReplayBudgetAbort(BaseException):
+    """Refuses a model_router attempt past MAX_REPLAY_CALLS.
+
+    Derives from BaseException, like LabBudgetAbort, so stop_check's
+    `except Exception` cannot wrap it into a StopCheckError and count it as a
+    Haiku error.
+    """
+
+
+@contextmanager
+def _replay_call_budget(limit: int) -> Iterator[dict[str, int]]:
+    """Count every model_router attempt (including empty-stop retries) for the
+    replay scope. The refused attempt is never sent. A previously installed
+    pre-call hook is chained first and restored on exit."""
+    state = {"admitted": 0}
+
+    def guard(provider: str, model: str, prompt_bytes: int) -> None:
+        if state["admitted"] >= limit:
+            raise ReplayBudgetAbort(f"replay would exceed {limit} model calls")
+        if previous is not None:
+            previous(provider, model, prompt_bytes)
+        state["admitted"] += 1
+
+    previous = model_router.set_pre_call_hook(guard)
+    try:
+        yield state
+    finally:
+        model_router.set_pre_call_hook(previous)
+
+
 def _done(
     verdict: dict[str, Any],
     *,
     decided_threshold: float,
     pushback_threshold: float,
+    require_pushback: bool,
 ) -> bool:
-    return (
-        verdict["decided"] >= decided_threshold
-        and verdict["pushback"] >= pushback_threshold
+    # Mirrors simulate_dialogue_week's production rule for STOP_CHECK.
+    return verdict["decided"] >= decided_threshold and (
+        not require_pushback or verdict["pushback"] >= pushback_threshold
     )
 
 
@@ -73,8 +106,13 @@ def replay(
     max_errors: int,
     decided_threshold: float,
     pushback_threshold: float,
+    require_pushback: bool,
 ) -> dict[str, Any]:
-    """Run Haiku on final Jev-scored states, stopping after repeated errors."""
+    """Run Haiku on final Jev-scored states, stopping after repeated errors.
+
+    At most MAX_REPLAY_CALLS model_router attempts are sent. If the budget runs
+    out, the in-flight sample is dropped and the receipt is marked
+    `call_budget_exhausted`."""
     if not 1 <= max_samples <= MAX_REPLAY_CALLS:
         raise ReplayError(f"max_samples must be between 1 and {MAX_REPLAY_CALLS}")
     if not 1 <= max_errors <= max_samples:
@@ -85,6 +123,8 @@ def replay(
     ):
         if isinstance(value, bool) or not 0 <= value <= 1:
             raise ReplayError(f"{name} must be between 0 and 1")
+    if not isinstance(require_pushback, bool):
+        raise ReplayError("require_pushback must be a bool")
     if source.get("prior_days") is not None:
         raise ReplayError(
             "source result used seeded prior days, which are not embedded in each pair"
@@ -150,71 +190,80 @@ def replay(
 
     samples = []
     error_count = 0
-    for candidate in candidates[:max_samples]:
-        pair = candidate["pair"]
-        messages = candidate["messages"]
-        final_jev = candidate["final_jev"]
-        final_tick = candidate["final_tick"]
-        lines = candidate["lines"]
-        haiku_model = candidate["haiku_model"]
-        day = candidate["day"]
-        objective = candidate["objective"]
+    call_budget_exhausted = False
+    with _replay_call_budget(MAX_REPLAY_CALLS) as budget:
+        for candidate in candidates[:max_samples]:
+            pair = candidate["pair"]
+            messages = candidate["messages"]
+            final_jev = candidate["final_jev"]
+            final_tick = candidate["final_tick"]
+            lines = candidate["lines"]
+            haiku_model = candidate["haiku_model"]
+            day = candidate["day"]
+            objective = candidate["objective"]
 
-        haiku_verdict = None
-        haiku_error = None
-        try:
-            haiku = check_scene_done(
-                lines,
-                "haiku",
-                day=day,
-                objective=objective,
-                haiku_model=haiku_model,
-            )
-        except StopCheckError as exc:
-            haiku_error = str(exc)
-            error_count += 1
-        else:
-            haiku_verdict = {
-                "decided": haiku.decided,
-                "pushback": haiku.pushback,
+            haiku_verdict = None
+            haiku_error = None
+            try:
+                haiku = check_scene_done(
+                    lines,
+                    "haiku",
+                    day=day,
+                    objective=objective,
+                    haiku_model=haiku_model,
+                )
+            except StopCheckError as exc:
+                haiku_error = str(exc)
+                error_count += 1
+            except ReplayBudgetAbort:
+                # The refused attempt was never sent; drop this sample rather than
+                # record it as a Haiku error or a disagreement.
+                call_budget_exhausted = True
+                break
+            else:
+                haiku_verdict = {
+                    "decided": haiku.decided,
+                    "pushback": haiku.pushback,
+                    "done": _done(
+                        {"decided": haiku.decided, "pushback": haiku.pushback},
+                        decided_threshold=decided_threshold,
+                        pushback_threshold=pushback_threshold,
+                        require_pushback=require_pushback,
+                    ),
+                    "model": haiku.model,
+                }
+            jev = {
+                "decided": final_jev["decided"],
+                "pushback": final_jev["pushback"],
                 "done": _done(
-                    {"decided": haiku.decided, "pushback": haiku.pushback},
+                    final_jev,
                     decided_threshold=decided_threshold,
                     pushback_threshold=pushback_threshold,
+                    require_pushback=require_pushback,
                 ),
-                "model": haiku.model,
+                "model": final_jev["model"],
             }
-        jev = {
-            "decided": final_jev["decided"],
-            "pushback": final_jev["pushback"],
-            "done": _done(
-                final_jev,
-                decided_threshold=decided_threshold,
-                pushback_threshold=pushback_threshold,
-            ),
-            "model": final_jev["model"],
-        }
-        samples.append(
-            {
-                "scenario_id": pair.get("scenario_id"),
-                "run_index": pair.get("run_index"),
-                "day": day,
-                "objective": objective,
-                "source_message_count": len(messages),
-                "scored_tick": final_tick,
-                "scored_message_count": len(lines),
-                "transcript_sha256": hashlib.sha256("\n".join(lines).encode()).hexdigest(),
-                "transcript": lines,
-                "jev": jev,
-                "haiku": haiku_verdict,
-                "haiku_error": haiku_error,
-                "agrees_on_done": (
-                    jev["done"] == haiku_verdict["done"] if haiku_verdict else None
-                ),
-            }
-        )
-        if error_count == max_errors:
-            break
+            samples.append(
+                {
+                    "scenario_id": pair.get("scenario_id"),
+                    "run_index": pair.get("run_index"),
+                    "day": day,
+                    "objective": objective,
+                    "source_message_count": len(messages),
+                    "scored_tick": final_tick,
+                    "scored_message_count": len(lines),
+                    "transcript_sha256": hashlib.sha256("\n".join(lines).encode()).hexdigest(),
+                    "transcript": lines,
+                    "jev": jev,
+                    "haiku": haiku_verdict,
+                    "haiku_error": haiku_error,
+                    "agrees_on_done": (
+                        jev["done"] == haiku_verdict["done"] if haiku_verdict else None
+                    ),
+                }
+            )
+            if error_count == max_errors:
+                break
 
     if not samples:
         raise ReplayError("source result has no Jev-scored pairs")
@@ -232,10 +281,12 @@ def replay(
         "thresholds": {
             "decided": decided_threshold,
             "pushback": pushback_threshold,
-            "require_pushback": True,
+            "require_pushback": require_pushback,
         },
         "requested_sample_cap": max_samples,
         "systematic_error_stop": max_errors,
+        "call_budget_exhausted": call_budget_exhausted,
+        "model_call_attempts": budget["admitted"],
         "sample_count": len(samples),
         "comparable_count": len(comparable),
         "haiku_error_count": len(samples) - len(comparable),
@@ -253,6 +304,12 @@ def main() -> None:
     parser.add_argument("--max-errors", type=int, default=3)
     parser.add_argument("--decided-threshold", type=float, required=True)
     parser.add_argument("--pushback-threshold", type=float, required=True)
+    parser.add_argument(
+        "--require-pushback",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="require pushback >= --pushback-threshold to call a scene done (default: on)",
+    )
     args = parser.parse_args()
     if args.output.exists():
         raise ReplayError(f"output already exists and will not be overwritten: {args.output}")
@@ -263,6 +320,7 @@ def main() -> None:
         max_errors=args.max_errors,
         decided_threshold=args.decided_threshold,
         pushback_threshold=args.pushback_threshold,
+        require_pushback=args.require_pushback,
     )
     result["source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
     args.output.write_text(json.dumps(result, indent=2) + "\n")
