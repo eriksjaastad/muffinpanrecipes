@@ -103,6 +103,20 @@ def test_replay_requires_a_jev_scored_pair(monkeypatch):
         _replay(source)
 
 
+@pytest.mark.parametrize("bad_log", ["jev", {"provider": "jev"}, None])
+def test_replay_rejects_non_list_stop_check_log_before_first_paid_call(monkeypatch, bad_log):
+    source = _source()
+    invalid = {**source["pairs"][0], "run_index": 2, "variant_stop_check_log": bad_log}
+    source["pairs"].append(invalid)
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match="must be a list of verdicts"):
+        _replay(source, max_samples=2, max_errors=2)
+
+    assert calls == []
+
+
 def test_replay_refuses_tick_beyond_available_messages(monkeypatch):
     source = _source()
     source["pairs"][0]["variant_stop_check_log"][-1]["tick"] = 3
@@ -251,7 +265,7 @@ def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):
 
 @pytest.mark.parametrize(
     ("field", "value"),
-    [("decided", None), ("pushback", "0.8"), ("model", "")],
+    [("decided", None), ("pushback", "0.8"), ("model", ""), ("model", " \t\n")],
 )
 def test_replay_validates_jev_fields_before_first_paid_call(monkeypatch, field, value):
     source = _source()

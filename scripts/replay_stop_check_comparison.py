@@ -102,7 +102,9 @@ def replay(
             raise ReplayError("every source pair must be an object")
         jev_log = pair.get("variant_stop_check_log")
         messages = pair.get("variant_messages")
-        if not isinstance(jev_log, list) or not jev_log:
+        if not isinstance(jev_log, list):
+            raise ReplayError("variant_stop_check_log must be a list of verdicts")
+        if not jev_log:
             continue
         if not isinstance(messages, list):
             raise ReplayError("a Jev-scored pair has no variant_messages list")
@@ -123,7 +125,7 @@ def replay(
             ):
                 raise ReplayError(f"the final Jev {field} must be a number between 0 and 1")
         model = final_jev.get("model")
-        if not isinstance(model, str) or not model:
+        if not isinstance(model, str) or not model.strip():
             raise ReplayError("the final Jev model must be a non-empty string")
         lines, haiku_model = _scored_transcript(messages, final_tick=final_tick)
         day = final_jev.get("day")
