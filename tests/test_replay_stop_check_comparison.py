@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 from types import SimpleNamespace
 
@@ -6,6 +7,9 @@ import pytest
 
 from backend.utils import model_router
 from scripts import replay_stop_check_comparison as replay
+from scripts import simulate_dialogue_week as simulate_module
+
+HISTORICAL_OBJECTIVE = "Choose the hero shot"
 
 
 def _source() -> dict:
@@ -49,6 +53,7 @@ def _source() -> dict:
 
 def _replay(source: dict, **overrides) -> dict:
     kwargs = {
+        "objective": HISTORICAL_OBJECTIVE,
         "max_samples": 1,
         "max_errors": 1,
         "decided_threshold": 0.7,
@@ -80,7 +85,7 @@ def test_replay_uses_only_messages_through_jev_tick_and_same_haiku_model(monkeyp
         "lines": ["Julian: Use the side rake.", "Ria: Agreed. Side rake wins."],
         "provider": "haiku",
         "day": "wednesday",
-        "objective": "Choose the hero shot",
+        "objective": HISTORICAL_OBJECTIVE,
         "haiku_model": "openrouter/anthropic/claude-haiku-4.5",
         "timeout_s": replay.REPLAY_HAIKU_TIMEOUT_S,
     }
@@ -114,6 +119,7 @@ def test_cli_require_pushback_false_ignores_pushback_in_done_and_receipt(monkeyp
         "argv",
         [
             "replay", str(source_path), str(output_path),
+            "--objective", HISTORICAL_OBJECTIVE,
             "--decided-threshold", "0.7", "--pushback-threshold", "0.5",
             "--no-require-pushback",
         ],
@@ -333,6 +339,17 @@ def test_replay_rejects_non_object_scored_message_before_first_paid_call(monkeyp
     assert calls == []
 
 
+def _cli(monkeypatch, *args: str) -> None:
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "replay", *args, "--objective", HISTORICAL_OBJECTIVE,
+            "--decided-threshold", "0.7", "--pushback-threshold", "0.5",
+        ],
+    )
+
+
 def test_cli_refuses_existing_output_before_any_paid_call(monkeypatch, tmp_path):
     source_path = tmp_path / "source.json"
     source_path.write_text(json.dumps(_source()))
@@ -340,17 +357,109 @@ def test_cli_refuses_existing_output_before_any_paid_call(monkeypatch, tmp_path)
     output_path.write_bytes(b'{"paid": "receipt"}\n')
     calls = []
     monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["replay", str(source_path), str(output_path), "--decided-threshold", "0.7", "--pushback-threshold", "0.5"],
-    )
+    _cli(monkeypatch, str(source_path), str(output_path))
 
     with pytest.raises(replay.ReplayError, match="will not be overwritten"):
         replay.main()
 
     assert calls == []
     assert output_path.read_bytes() == b'{"paid": "receipt"}\n'
+
+
+def test_cli_records_explicit_historical_objective_not_current_config(monkeypatch, tmp_path):
+    # The current config objective is swapped for a sentinel, so the only way the
+    # checker can see the historical objective is if the CLI argument is used.
+    monkeypatch.setitem(simulate_module.DAY_MEETING_GOAL["wednesday"], "objective", "CURRENT CONFIG")
+    historical = "Pick the side rake"
+    source_path = tmp_path / "source.json"
+    source_path.write_text(json.dumps(_source()))
+    output_path = tmp_path / "receipt.json"
+    seen = []
+
+    def fake_check(lines, provider, *, day, objective, haiku_model, timeout_s):
+        seen.append(objective)
+        return SimpleNamespace(decided=0.9, pushback=0.9, model=haiku_model)
+
+    monkeypatch.setattr(replay, "check_scene_done", fake_check)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "replay", str(source_path), str(output_path), "--objective", historical,
+            "--decided-threshold", "0.7", "--pushback-threshold", "0.5",
+        ],
+    )
+
+    replay.main()
+
+    receipt = json.loads(output_path.read_text())
+    assert seen == [historical]
+    assert receipt["objective"] == historical
+    assert receipt["samples"][0]["objective"] == historical
+
+
+def test_replay_rejects_blank_objective_before_first_paid_call(monkeypatch):
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+
+    with pytest.raises(replay.ReplayError, match="non-blank string"):
+        _replay(_source(), objective="  \t\n")
+
+    assert calls == []
+
+
+def test_cli_refuses_missing_output_parent_before_reading_source_or_calling(monkeypatch, tmp_path):
+    # The source path does not exist either: a ReplayError proves the output
+    # check ran before the source read, and the missing parent is not created.
+    output_path = tmp_path / "missing" / "receipt.json"
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+    _cli(monkeypatch, str(tmp_path / "no-such-source.json"), str(output_path))
+
+    with pytest.raises(replay.ReplayError, match="output directory does not exist"):
+        replay.main()
+
+    assert calls == []
+    assert not (tmp_path / "missing").exists()
+
+
+def test_cli_reserves_output_before_checker_then_full_receipt_replaces_marker(monkeypatch, tmp_path):
+    source_path = tmp_path / "source.json"
+    source_path.write_text(json.dumps(_source()))
+    output_path = tmp_path / "receipt.json"
+    marker_during_call = []
+
+    def fake_check(*args, **kwargs):
+        marker_during_call.append(json.loads(output_path.read_text()))
+        return SimpleNamespace(decided=0.9, pushback=0.9, model="openrouter/anthropic/claude-haiku-4.5")
+
+    monkeypatch.setattr(replay, "check_scene_done", fake_check)
+    _cli(monkeypatch, str(source_path), str(output_path))
+
+    replay.main()
+
+    assert marker_during_call == [{"status": "reserved", "pid": os.getpid()}]
+    receipt = json.loads(output_path.read_text())
+    assert "status" not in receipt
+    assert receipt["sample_count"] == 1
+    assert receipt["source_sha256"]
+
+
+def test_cli_failure_after_reservation_leaves_marker_as_evidence(monkeypatch, tmp_path):
+    source = _source()
+    source["prior_days"] = {"path": "frozen.json", "sha256": "abc"}
+    source_path = tmp_path / "source.json"
+    source_path.write_text(json.dumps(source))
+    output_path = tmp_path / "receipt.json"
+    calls = []
+    monkeypatch.setattr(replay, "check_scene_done", lambda *args, **kwargs: calls.append(1))
+    _cli(monkeypatch, str(source_path), str(output_path))
+
+    with pytest.raises(replay.ReplayError, match="used seeded prior days"):
+        replay.main()
+
+    assert calls == []
+    assert json.loads(output_path.read_text()) == {"status": "reserved", "pid": os.getpid()}
 
 
 def test_replay_stops_at_sample_cap_when_checks_succeed(monkeypatch):

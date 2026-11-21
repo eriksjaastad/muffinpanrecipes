@@ -5,11 +5,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 from backend.utils import model_router
+from backend.utils.atomic import atomic_write
 from backend.utils.stop_check import HAIKU_MODEL, StopCheckError, check_scene_done
 from scripts import simulate_dialogue_week as simulate_module
 
@@ -39,6 +41,13 @@ SUPPORTED_HAIKU_ID = _openrouter_id(HAIKU_MODEL)
 
 class ReplayError(RuntimeError):
     """The source result cannot support a bounded same-input replay."""
+
+
+def _require_objective(objective: object) -> None:
+    """The historical objective the source was scored against; replay never
+    substitutes the current config's objective for it."""
+    if not isinstance(objective, str) or not objective.strip():
+        raise ReplayError("objective must be a non-blank string")
 
 
 class ReplayBudgetAbort(BaseException):
@@ -126,6 +135,7 @@ def _scored_transcript(
 def replay(
     source: dict[str, Any],
     *,
+    objective: str,
     max_samples: int,
     max_errors: int,
     decided_threshold: float,
@@ -134,9 +144,11 @@ def replay(
 ) -> dict[str, Any]:
     """Run Haiku on final Jev-scored states, stopping after repeated errors.
 
-    At most MAX_REPLAY_CALLS model_router attempts are sent. If the budget runs
-    out, the in-flight sample is dropped and the receipt is marked
-    `call_budget_exhausted`."""
+    Every candidate is checked against `objective`, the objective the source
+    was scored under. At most MAX_REPLAY_CALLS model_router attempts are sent.
+    If the budget runs out, the in-flight sample is dropped and the receipt is
+    marked `call_budget_exhausted`."""
+    _require_objective(objective)
     if not 1 <= max_samples <= MAX_REPLAY_CALLS:
         raise ReplayError(f"max_samples must be between 1 and {MAX_REPLAY_CALLS}")
     if not 1 <= max_errors <= max_samples:
@@ -206,7 +218,7 @@ def replay(
                 "lines": lines,
                 "haiku_model": haiku_model,
                 "day": day,
-                "objective": simulate_module.DAY_MEETING_GOAL[day]["objective"],
+                "objective": objective,
             }
         )
     if not candidates:
@@ -303,6 +315,7 @@ def replay(
         "production_behavior_changed": False,
         "source_prior_days_seeded": False,
         "source_stage": source_stage,
+        "objective": objective,
         "thresholds": {
             "decided": decided_threshold,
             "pushback": pushback_threshold,
@@ -321,10 +334,29 @@ def replay(
     }
 
 
+def _reserve_output(path: Path) -> None:
+    """Exclusively create the receipt path with a small marker. The marker stays
+    as evidence if the run fails; a successful run replaces it."""
+    if not path.parent.is_dir():
+        raise ReplayError(f"output directory does not exist: {path.parent}")
+    try:
+        with open(path, "x", encoding="utf-8") as handle:
+            handle.write(json.dumps({"status": "reserved", "pid": os.getpid()}) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+    except FileExistsError as exc:
+        raise ReplayError(f"output already exists and will not be overwritten: {path}") from exc
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path, help="historical conversation-lab A/B result")
     parser.add_argument("output", type=Path, help="standalone JSON comparison receipt")
+    parser.add_argument(
+        "--objective",
+        required=True,
+        help="the objective the source was scored under (not the current config's)",
+    )
     parser.add_argument("--max-samples", type=int, default=MAX_REPLAY_CALLS)
     parser.add_argument("--max-errors", type=int, default=3)
     parser.add_argument("--decided-threshold", type=float, required=True)
@@ -336,11 +368,12 @@ def main() -> None:
         help="require pushback >= --pushback-threshold to call a scene done (default: on)",
     )
     args = parser.parse_args()
-    if args.output.exists():
-        raise ReplayError(f"output already exists and will not be overwritten: {args.output}")
+    _require_objective(args.objective)
+    _reserve_output(args.output)
     source_bytes = args.source.read_bytes()
     result = replay(
         json.loads(source_bytes),
+        objective=args.objective,
         max_samples=args.max_samples,
         max_errors=args.max_errors,
         decided_threshold=args.decided_threshold,
@@ -348,7 +381,7 @@ def main() -> None:
         require_pushback=args.require_pushback,
     )
     result["source_sha256"] = hashlib.sha256(source_bytes).hexdigest()
-    args.output.write_text(json.dumps(result, indent=2) + "\n")
+    atomic_write(args.output, json.dumps(result, indent=2) + "\n")
     print(
         f"compared {result['sample_count']} transcripts: "
         f"{result['comparable_count']} comparable, "
