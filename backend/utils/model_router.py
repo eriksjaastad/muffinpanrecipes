@@ -858,6 +858,7 @@ def generate_response(
     model: str = "openai/gpt-5-mini",
     temperature: float = 0.8,
     images: Optional[list[bytes]] = None,
+    timeout_s: float | None = None,
 ) -> str:
     """Generate a text response through OpenRouter, optionally with images.
 
@@ -873,6 +874,10 @@ def generate_response(
                 same OpenRouter request as the prompt; they do not create a
                 second model call. Local Ollama models fail closed because
                 this router has no proven local-vision contract.
+        timeout_s: Optional total wall-clock timeout for a bounded OpenRouter
+                call; SDK transport retries are disabled when supplied, as in
+                generate_vision_response. Default None keeps SDK defaults.
+                A local model has no bounded path, so supplying it fails closed.
 
     Returns:
         Generated text.
@@ -883,6 +888,8 @@ def generate_response(
     if routed.provider == "local":
         if images:
             raise RuntimeError("local dialogue models cannot receive candidate images")
+        if timeout_s is not None:
+            raise RuntimeError("timeout_s is not supported for local models")
         _fire_pre_call_hook("local", routed.model, _prompt_bytes(prompt, system_prompt))
         return _generate_local(prompt, system_prompt, routed.model, temperature)
     openrouter_model = openrouter_model_id(routed.provider, routed.model)
@@ -890,6 +897,7 @@ def generate_response(
     return _generate_openrouter(
         prompt=prompt, system_prompt=system_prompt,
         model=openrouter_model, temperature=temperature, images=images,
+        timeout_s=timeout_s,
     )
 
 
