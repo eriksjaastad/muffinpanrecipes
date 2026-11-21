@@ -542,11 +542,12 @@ def test_jev_pre_attempt_hook_can_abort_before_any_http_call(monkeypatch):
 def test_haiku_parse(monkeypatch):
     captured: dict = {}
 
-    def fake_generate_response(*, prompt, system_prompt, model, temperature):
+    def fake_generate_response(*, prompt, system_prompt, model, temperature, timeout_s):
         captured["prompt"] = prompt
         captured["system_prompt"] = system_prompt
         captured["model"] = model
         captured["temperature"] = temperature
+        captured["timeout_s"] = timeout_s
         return '{"decided": 0.9, "pushback": 0.4}'
 
     monkeypatch.setattr("backend.utils.stop_check.generate_response", fake_generate_response)
@@ -564,6 +565,7 @@ def test_haiku_parse(monkeypatch):
     assert result.model == HAIKU_MODEL
     assert result.cost_usd is None
     assert captured["model"] == HAIKU_MODEL
+    assert captured["timeout_s"] is None
     assert "Nail down the recipe" in captured["prompt"]
     assert "STRICT JSON" in captured["prompt"]
     assert "Margaret: yes" in captured["prompt"]

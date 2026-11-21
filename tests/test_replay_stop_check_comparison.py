@@ -62,13 +62,14 @@ def _replay(source: dict, **overrides) -> dict:
 def test_replay_uses_only_messages_through_jev_tick_and_same_haiku_model(monkeypatch):
     seen = {}
 
-    def fake_check(lines, provider, *, day, objective, haiku_model):
+    def fake_check(lines, provider, *, day, objective, haiku_model, timeout_s):
         seen.update(
             lines=lines,
             provider=provider,
             day=day,
             objective=objective,
             haiku_model=haiku_model,
+            timeout_s=timeout_s,
         )
         return SimpleNamespace(decided=0.4, pushback=0.9, model=haiku_model)
 
@@ -81,6 +82,7 @@ def test_replay_uses_only_messages_through_jev_tick_and_same_haiku_model(monkeyp
         "day": "wednesday",
         "objective": "Choose the hero shot",
         "haiku_model": "openrouter/anthropic/claude-haiku-4.5",
+        "timeout_s": replay.REPLAY_HAIKU_TIMEOUT_S,
     }
     sample = result["samples"][0]
     assert sample["source_message_count"] == 3
@@ -127,11 +129,11 @@ def test_cli_require_pushback_false_ignores_pushback_in_done_and_receipt(monkeyp
     assert sample["agrees_on_done"] is True
 
 
-def test_replay_attempt_budget_counts_empty_stop_retries_and_refuses_21st(monkeypatch):
-    # Each sample's empty-stop reply makes 3 provider attempts, so the 7th
-    # sample needs attempts 19-21. Only 20 may be sent.
+def test_replay_sends_one_attempt_per_sample_within_the_20_call_cap(monkeypatch):
+    # The replay timeout disables empty-stop retries in the router, so each
+    # sample is exactly one admitted attempt. 20 samples -> 20 attempts, no more.
     source = _source()
-    source["pairs"] = [{**source["pairs"][0], "run_index": i} for i in range(1, 8)]
+    source["pairs"] = [{**source["pairs"][0], "run_index": i} for i in range(1, 21)]
     sent = []
     prior_calls = []
 
@@ -148,16 +150,56 @@ def test_replay_attempt_budget_counts_empty_stop_retries_and_refuses_21st(monkey
     prior = model_router.set_pre_call_hook(prior_hook)
     assert prior is None
 
-    result = _replay(source, max_samples=7, max_errors=7)
+    result = _replay(source, max_samples=20, max_errors=20)
 
     assert len(sent) == replay.MAX_REPLAY_CALLS == len(prior_calls)
-    assert result["call_budget_exhausted"] is True
+    assert result["call_budget_exhausted"] is False
     assert result["model_call_attempts"] == 20
-    assert result["sample_count"] == 6
-    assert result["haiku_error_count"] == 6
+    assert result["sample_count"] == 20
+    assert result["haiku_error_count"] == 20
     assert model_router._PRE_CALL_HOOK is prior_hook
     with pytest.raises(replay.ReplayError, match="between 1 and 20"):
         _replay(_source(), max_samples=21)
+
+
+def test_replay_haiku_request_disables_sdk_retries_with_finite_timeout(monkeypatch):
+    # End to end through check_scene_done -> generate_response -> the real OpenAI
+    # client; only the HTTP attempt is replaced, so no network is used.
+    clients = []
+
+    def fake_attempt(client, model, messages, temperature):
+        clients.append(client)
+        return '{"decided": 0.9, "pushback": 0.9}', "stop", 1
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(model_router, "_openrouter_attempt", fake_attempt)
+
+    result = _replay(_source())
+
+    assert result["samples"][0]["haiku"]["done"] is True
+    assert len(clients) == 1
+    assert clients[0].max_retries == 0
+    assert clients[0].timeout == replay.REPLAY_HAIKU_TIMEOUT_S
+
+
+def test_replay_refuses_non_haiku_transcript_with_zero_calls(monkeypatch):
+    # A Jev-scored DeepSeek or local transcript must not be replayed as Haiku:
+    # no Haiku check and no provider attempt may happen.
+    attempts = []
+    checks = []
+    monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(model_router, "_openrouter_attempt", lambda *a, **k: attempts.append(a))
+    monkeypatch.setattr(replay, "check_scene_done", lambda *a, **k: checks.append(a))
+
+    for model in ("deepseek/deepseek-v4.1-flash", "local/qwen2.5-coder:14b"):
+        source = _source()
+        for message in source["pairs"][0]["variant_messages"]:
+            message["model"] = model
+        with pytest.raises(replay.ReplayError, match="not the supported Haiku"):
+            _replay(source)
+
+    assert attempts == []
+    assert checks == []
 
 
 def test_replay_requires_a_jev_scored_pair(monkeypatch):

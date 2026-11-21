@@ -10,10 +10,31 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from backend.utils import model_router
-from backend.utils.stop_check import StopCheckError, check_scene_done
+from backend.utils.stop_check import HAIKU_MODEL, StopCheckError, check_scene_done
 from scripts import simulate_dialogue_week as simulate_module
 
 MAX_REPLAY_CALLS = 20
+# Total wall-clock seconds for one replayed Haiku request. Passing it makes the
+# router disable SDK transport retries (max_retries=0), so each admitted attempt
+# is exactly one HTTP request and the MAX_REPLAY_CALLS cap counts real requests.
+REPLAY_HAIKU_TIMEOUT_S = 60.0
+
+
+def _openrouter_id(model: str) -> str | None:
+    """Repository-normalized OpenRouter id for a provider-prefixed model, or None
+    when the router has no such id (unknown provider, unmapped or local model)."""
+    try:
+        routed = model_router.parse_model(model)
+        return model_router.openrouter_model_id(routed.provider, routed.model)
+    except RuntimeError:
+        return None
+
+
+# The only Haiku the replay will call: the production dialogue model's id after
+# the router's own normalization. Equal ids such as
+# anthropic/claude-haiku-4-5-20251001 and openrouter/anthropic/claude-haiku-4.5
+# both normalize to this; any other model is refused before a paid call.
+SUPPORTED_HAIKU_ID = _openrouter_id(HAIKU_MODEL)
 
 
 class ReplayError(RuntimeError):
@@ -96,7 +117,10 @@ def _scored_transcript(
         models.add(model)
     if len(models) != 1:
         raise ReplayError(f"scored transcript has multiple dialogue models: {sorted(models)}")
-    return lines, models.pop()
+    model = models.pop()
+    if _openrouter_id(model) != SUPPORTED_HAIKU_ID:
+        raise ReplayError(f"scored transcript dialogue model is not the supported Haiku: {model!r}")
+    return lines, model
 
 
 def replay(
@@ -211,6 +235,7 @@ def replay(
                     day=day,
                     objective=objective,
                     haiku_model=haiku_model,
+                    timeout_s=REPLAY_HAIKU_TIMEOUT_S,
                 )
             except StopCheckError as exc:
                 haiku_error = str(exc)
