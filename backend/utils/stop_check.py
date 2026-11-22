@@ -256,7 +256,12 @@ def _check_jev(state: str, objective: str) -> StopCheckResult:
     )
 
 
-def _check_haiku(state: str, objective: str, haiku_model: str = HAIKU_MODEL) -> StopCheckResult:
+def _check_haiku(
+    state: str,
+    objective: str,
+    haiku_model: str = HAIKU_MODEL,
+    timeout_s: float | None = None,
+) -> StopCheckResult:
     prompt = (
         f"Read this meeting transcript and answer two questions with STRICT JSON only.\n\n"
         f"1. Has the team actually reached a final decision on: {objective}?\n"
@@ -270,12 +275,28 @@ def _check_haiku(state: str, objective: str, haiku_model: str = HAIKU_MODEL) -> 
             system_prompt="You answer dialogue-scene questions with strict JSON only.",
             model=haiku_model,
             temperature=0.0,
+            timeout_s=timeout_s,
         ).strip()
     except Exception as exc:
         raise StopCheckError(f"haiku stop check failed: {exc}") from exc
 
+    # Haiku occasionally follows the JSON-only instruction semantically but
+    # still wraps the object in one Markdown fence. Accept that one bounded
+    # wrapper for lab measurements; prose, multiple fences, and trailing text
+    # remain malformed.
+    json_text = raw
+    if raw.startswith("```") and raw.endswith("```"):
+        fence_lines = raw.splitlines()
+        if (
+            len(fence_lines) >= 3
+            and fence_lines[0] in {"```", "```json"}
+            and fence_lines[-1] == "```"
+            and all("```" not in line for line in fence_lines[1:-1])
+        ):
+            json_text = "\n".join(fence_lines[1:-1]).strip()
+
     try:
-        payload = json.loads(raw)
+        payload = json.loads(json_text)
     except json.JSONDecodeError as exc:
         raise StopCheckError(
             f"haiku stop check returned malformed JSON: {raw[:120]!r}"
@@ -303,6 +324,7 @@ def check_scene_done(
     day: str,
     objective: str,
     haiku_model: str = HAIKU_MODEL,
+    timeout_s: float | None = None,
 ) -> StopCheckResult:
     """Score whether the scene is done for ``day``'s ``objective``.
 
@@ -314,6 +336,10 @@ def check_scene_done(
     dialogue model string as the run that spawned the scene (for example
     ``openrouter/anthropic/claude-haiku-4.5``). Production callers omit it
     and keep HAIKU_MODEL.
+
+    ``timeout_s`` bounds the ``haiku`` provider's one OpenRouter request
+    (see model_router.generate_response). It is ignored by ``jev``, which
+    has its own fixed timeout. Production callers omit it.
     """
     if not isinstance(lines, list):
         raise StopCheckError(f"lines must be a list of strings, got {type(lines).__name__}")
@@ -321,5 +347,5 @@ def check_scene_done(
     if provider == "jev":
         return _check_jev(state, objective)
     if provider == "haiku":
-        return _check_haiku(state, objective, haiku_model=haiku_model)
+        return _check_haiku(state, objective, haiku_model=haiku_model, timeout_s=timeout_s)
     raise StopCheckError(f"unknown stop check provider: {provider!r}")
