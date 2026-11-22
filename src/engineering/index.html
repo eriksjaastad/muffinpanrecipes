@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Google tag (gtag.js) — keep in sync with backend/publishing/analytics.py. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-05P73D3237"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-05P73D3237');
+    </script>
+
+    <title>Engineering Notes | Muffin Pan Recipes</title>
+    <meta name="description"
+        content="Engineering notes from building Muffin Pan Recipes: an AI editorial pipeline, the judges and experiments behind it, and the static site it publishes to.">
+    <link rel="canonical" href="https://muffinpanrecipes.com/engineering">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://muffinpanrecipes.com/engineering">
+    <meta property="og:title" content="Engineering Notes | Muffin Pan Recipes">
+    <meta property="og:description"
+        content="Engineering notes from building Muffin Pan Recipes: an AI editorial pipeline, its judges and experiments, and the static site it publishes to.">
+    <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+    <meta property="og:image:width" content="1024">
+    <meta property="og:image:height" content="1024">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://muffinpanrecipes.com/engineering">
+    <meta name="twitter:title" content="Engineering Notes | Muffin Pan Recipes">
+    <meta name="twitter:description" content="Engineering notes from building an AI editorial pipeline and its static site.">
+    <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+
+    <!-- Structured data: a CollectionPage whose author is the human who built it. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "CollectionPage",
+      "@id": "https://muffinpanrecipes.com/engineering#page",
+      "url": "https://muffinpanrecipes.com/engineering",
+      "name": "Engineering Notes",
+      "author": { "@type": "Person", "name": "Erik Sjaastad" },
+      "isPartOf": { "@id": "https://muffinpanrecipes.com/#website" }
+    }
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <link rel="stylesheet" href="/assets/site.css">
+</head>
+
+<body>
+    <nav class="site-nav">
+        <a href="/" class="site-nav__back">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Home
+        </a>
+    </nav>
+
+    <main class="site-main">
+        <div class="page-head">
+            <p class="page-head__eyebrow">Engineering</p>
+            <h1 class="page-head__title">Engineering Notes</h1>
+            <p class="page-head__sub">What it took to build an AI editorial pipeline, what held up, and what didn't.</p>
+        </div>
+
+        <p class="about-copy">These notes are written by Erik Sjaastad, the human who builds and runs the site. They cover the pipeline, the measurements behind its design, and the static publishing setup. Recipes and images on the site are AI-generated and not kitchen-tested unless a page says so.</p>
+
+        <ul class="engineering-list">
+            <li class="engineering-list__item">
+                <p class="engineering-list__status">Draft post</p>
+                <h2 class="engineering-list__title"><a href="/engineering/from-six-voices-to-one-author">From six voices to one author</a></h2>
+                <p class="engineering-list__desc">Why the team started as six specialized roles, what the judges measured, and why one author now writes each conversation.</p>
+            </li>
+            <li class="engineering-list__item">
+                <p class="engineering-list__status">Outline</p>
+                <h2 class="engineering-list__title">Judges that passed bad work</h2>
+                <p class="engineering-list__desc">Eight-dimension judging, fail-closed parsing, known-bad calibration, and why a passing score was not the same as a good draft.</p>
+            </li>
+            <li class="engineering-list__item">
+                <p class="engineering-list__status">Outline</p>
+                <h2 class="engineering-list__title">Product rules belong in code</h2>
+                <p class="engineering-list__desc">Why prompts cannot guarantee a muffin-pan recipe, how deterministic form, title, and ingredient gates work, and why title similarity alone missed a duplicate.</p>
+            </li>
+            <li class="engineering-list__item">
+                <p class="engineering-list__status">Outline</p>
+                <h2 class="engineering-list__title">Static pages, pinned images</h2>
+                <p class="engineering-list__desc">Committed static recipe pages, dynamic freshness where it is needed, and why a full rebuild once changed old hero images.</p>
+            </li>
+        </ul>
+
+        <p class="about-copy">Back to <a href="/about">the about page</a> for who makes the site and how the recipes are produced.</p>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+</body>
+
+</html>

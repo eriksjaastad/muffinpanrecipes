@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <!-- Google tag (gtag.js) — keep in sync with backend/publishing/analytics.py. -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-05P73D3237"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-05P73D3237');
+    </script>
+
+    <title>From six voices to one author | Engineering Notes | Muffin Pan Recipes</title>
+    <meta name="description"
+        content="How an AI editorial pipeline with six named roles became one author per conversation: the judges, the experiments, and the static site underneath.">
+    <link rel="canonical" href="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
+    <meta property="og:title" content="From six voices to one author | Muffin Pan Recipes">
+    <meta property="og:description"
+        content="How an AI editorial pipeline with six named roles became one author per conversation, and what the measurements said.">
+    <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+    <meta property="og:image:width" content="1024">
+    <meta property="og:image:height" content="1024">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
+    <meta name="twitter:title" content="From six voices to one author | Muffin Pan Recipes">
+    <meta name="twitter:description" content="How an AI editorial pipeline became one author per conversation.">
+    <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
+
+    <!-- Structured data: BlogPosting with the human author credited. No
+         datePublished yet: this is a draft and no publish date is claimed. -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "@id": "https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author#post",
+      "url": "https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author",
+      "headline": "From six voices to one author",
+      "description": "How an AI editorial pipeline with six named roles became one author per conversation: the judges, the experiments, and the static site underneath.",
+      "author": { "@type": "Person", "name": "Erik Sjaastad" },
+      "publisher": { "@id": "https://muffinpanrecipes.com/#organization" },
+      "isPartOf": { "@id": "https://muffinpanrecipes.com/engineering#page" },
+      "mainEntityOfPage": "https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author"
+    }
+    </script>
+
+    <!-- Favicon -->
+    <link rel="icon"
+        href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🧁</text></svg>">
+    <link rel="stylesheet" href="/assets/site.css">
+</head>
+
+<body>
+    <nav class="site-nav">
+        <a href="/engineering" class="site-nav__back">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
+            Engineering Notes
+        </a>
+    </nav>
+
+    <main class="site-main engineering-post">
+        <div class="page-head">
+            <p class="page-head__eyebrow">Engineering &middot; Draft</p>
+            <h1 class="page-head__title">From six voices to one author</h1>
+            <p class="page-head__sub">An AI editorial pipeline built around six named roles, what the measurements said about it, and why each conversation is now written by a single author.</p>
+        </div>
+
+        <p class="about-copy">By Erik Sjaastad. Muffin Pan Recipes is a static site that publishes one recipe a week. Every recipe, photo, and piece of copy is AI-generated and not kitchen-tested unless a page says so. This post covers how the team came to be written the way it is, and what the measurements showed along the way.</p>
+
+        <h2>The hypothesis</h2>
+        <p class="about-copy">The product constraint came first: a muffin pan recipe, published as fast static HTML, with no filler. The editorial idea came second. Instead of one model writing a recipe and a page, a small team would produce it. Named roles would brainstorm the concept, develop the recipe, direct the photography, approve or reject the draft, write the copy, and publish. Two bets sat underneath. Disagreement and specialization might improve the output. And showing the process would make it more trustworthy than a finished page alone.</p>
+
+        <h2>The pipeline as first built</h2>
+        <p class="about-copy">Each week ran Monday through Sunday in stages. The baker developed the recipe. The creative director reviewed it and could send it back for revision, up to a fixed number of cycles. The art director chose images. The copywriter wrote the titles, descriptions, and voice. The site architect built the page. Each character was generated line by line, one turn at a time, with a shared prompt and a per-character block of backstory, voice notes, and example messages.</p>
+
+        <h2>Where the roles broke</h2>
+        <p class="about-copy">The first problems were in wiring, not taste. Handoffs between roles drifted. In one week a copywriter's output was generated and never reached the published page. Per-character dialogue ran long. The voices blurred, so the baker and the copywriter often sounded alike. The characters also agreed with each other too readily, and the arguments that were supposed to improve the recipe often ended in circular agreement.</p>
+
+        <p class="about-copy">The lesson was that a role is a constraint on what a single writer produces, not a separate mind. Giving six prompts six names did not create six perspectives.</p>
+
+        <h2>Measuring it: judges, calibration, and experiments</h2>
+        <p class="about-copy">Once the output was visible, the team started measuring it. We built a judge that scores each draft on eight dimensions and returns a structured verdict. Its parser fails closed: a reply that cannot be parsed into the expected shape counts as a rejection, not a pass.</p>
+
+        <p class="about-copy">The judge was calibrated against known-bad examples, drafts that were wrong on purpose, to confirm it could still tell them apart. We ran blinded A/B comparisons so the person reading two versions could not tell which one came from which setup. We tested turn counts, history windows (how much earlier conversation a character sees), and word caps. Each experiment changed one lever, and each one got a short record: what changed, what was measured, and what we concluded.</p>
+
+        <p class="about-copy">Some of those changes helped. Many held no effect, and a few contradicted earlier results. The most useful lesson was about the judge itself. A judge passing a draft did not make the draft good. It meant the draft met the judge's criteria, and the criteria were only as good as the cases we had calibrated them on. We stopped treating a green check as the finish line and started reading the drafts.</p>
+
+        <h2>The full-week comparison</h2>
+        <p class="about-copy">The biggest change came from comparing whole weeks rather than single turns. The old line-by-line generator passed one of six stages on the first try. In two trial weeks, a single author writing the whole meeting passed eleven of twelve stage checks. That is a small sample, and we treat it as a result to confirm, not a law. It was still large enough to change what we ship.</p>
+
+        <p class="about-copy">Production now uses one author per conversation. That author writes the full scene in a single pass: who speaks, what each person knows, where they disagree, and how the discussion ends. The named roles stayed. They are now constraints on what the author writes about and perspectives the author has to hold, not separate generators stitched together after the fact.</p>
+
+        <h2>Product rules belong in code</h2>
+        <p class="about-copy">Prompts cannot enforce product rules. A prompt can ask for a muffin-pan recipe, but it cannot guarantee one. So the publish path now runs deterministic checks: the recipe must genuinely use the pan, the title must satisfy format and novelty rules, and the ingredients are compared with the published catalog for same-dish overlap. A failed check blocks the stage.</p>
+
+        <p class="about-copy">One known duplicate showed the limits of this approach. Title similarity alone was not enough to catch it, which is why the gates also look at ingredient overlap rather than the title alone.</p>
+
+        <h2>The static site underneath</h2>
+        <p class="about-copy">The site is committed static HTML for recipe pages, with dynamic freshness only where it is needed. Three things went wrong on the way there.</p>
+
+        <ul>
+            <li>Our assumption about how the hosting platform routes built files was wrong, and pages returned 404 until the routing matched the build's real output layout.</li>
+            <li>A test run that wrote under a different storage prefix leaked that prefix into shared process state, so the live site briefly read from the test path. The fix is a context manager that restores the prefix on every exit path, including exceptions, and wraps each scheduled handler.</li>
+            <li>A full rebuild quietly changed the hero images on older pages, because the image choice was being re-derived at build time. Chosen images are now pinned as data, so a rebuild reproduces the same page.</li>
+        </ul>
+
+        <p class="about-copy">Each release now goes through explicit preview and release-provenance checks before it is promoted. The goal is that a rebuild can only change what was meant to change.</p>
+
+        <h2>What is next</h2>
+        <p class="about-copy">The next posts in this series will go deeper on the judges, on the product-rule gates, and on the static publishing setup. Each will report what was measured and what was not. For how the site is made and who is responsible for it, see <a href="/about">the about page</a>. For the rest of the series, see <a href="/engineering">the engineering notes</a>.</p>
+
+        <div class="about-disclosure">
+            <p class="about-copy">Recipes and images on this site are generated by AI and not tested in a physical kitchen unless a page says so. Check doneness rather than trusting the clock alone.</p>
+        </div>
+    </main>
+
+    <footer class="site-footer">
+        <p class="site-footer__motto">The struggle is the story.</p>
+        <p class="site-footer__copy"><a href="/about">About</a> &middot; <a href="/privacy">Privacy</a> &middot; &copy; 2026 Muffin Pan Recipes</p>
+    </footer>
+</body>
+
+</html>
