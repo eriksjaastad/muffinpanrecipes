@@ -64,6 +64,33 @@ def test_engineering_pages_cross_link_each_other_and_about() -> None:
     assert 'href="/about"' in post
 
 
+def test_engineering_links_have_persistent_underline() -> None:
+    """Links must be distinguishable without hover: the global `a` rule removes
+    underlines, so each engineering link selector needs its own underline rule."""
+    css = _read(SRC / "assets" / "site.css")
+    rules = [
+        (set(sel.strip() for sel in selectors.split(",")), body)
+        for selectors, body in re.findall(r"([^{}]+)\{([^{}]*)\}", css)
+    ]
+    required = [
+        ".engineering-index .engineering-list__title a",
+        ".engineering-index .about-copy a",
+        ".engineering-post .about-copy a",
+    ]
+    for selector in required:
+        bodies = [body for sels, body in rules if selector in sels]
+        assert any(re.search(r"text-decoration(-line)?:\s*underline", b) for b in bodies), selector
+    assert 'class="site-main engineering-index"' in _read(INDEX)
+
+
+def test_engineering_post_separates_publish_judge_from_lab_judge() -> None:
+    """The post must not imply the production publish gate was calibrated."""
+    post = _read(POST)
+    assert "production publish judge" in post
+    assert "pairwise judge" in post
+    assert "Nothing in our calibration validated the production publish gate" in post
+
+
 def test_engineering_pages_not_in_sitemap_or_site_nav() -> None:
     """Draft branch: nothing public points at these pages yet. The homepage
     and sitemap stay untouched, and the about page's site nav still only
