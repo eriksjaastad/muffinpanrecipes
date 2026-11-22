@@ -15,6 +15,14 @@
     "authorized_by": "Erik",
     "authorized_at": "2026-11-21T23:00:40-05:00"
   },
+  "provenance": {
+    "source_file": "2026-11-21-jev-haiku-source-14.json",
+    "source_sha256": "23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0",
+    "missing_population_source_file": "2026-11-21-jev-haiku-missing-11-source.json",
+    "missing_population_source_sha256": "5947e363034be743f7958d2137ebd0f8348f5bac9acb67120aecd4ce9a23944d",
+    "missing_population_replay_file": "2026-11-21-jev-haiku-missing-11-replay.json",
+    "missing_population_replay_sha256": "06f7b4b6f91697445fc3e7cbf2fec633939b22f967baf08417fcd1f04397f7f2"
+  },
   "call_accounting": {
     "prior_task_model_responses": 18,
     "additional_attempts": 11,

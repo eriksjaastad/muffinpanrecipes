@@ -73,9 +73,18 @@ review favors Jev in every observed conflict. Production remains unchanged.
 
 - Full result: `2026-11-21-jev-haiku-stop-check-full.json`
 - Prior three-sample recovery: `2026-11-19-jev-haiku-stop-check-replay.json`
-- Additional-call receipt: `.scratch/lab/results/20261121T2300Z-jev-haiku-missing-11-replay.json`
-- Additional source hash: `5947e363034be743f7958d2137ebd0f8348f5bac9acb67120aecd4ce9a23944d`
-- Full committed JSON SHA-256 before review: `efa37764a23f19f6b921d883baee4023e3fb655b527f04cf15ee1fbe396af7c3`
+- Original source: `2026-11-21-jev-haiku-source-14.json` (SHA-256
+  `23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0`)
+- Missing-population source: `2026-11-21-jev-haiku-missing-11-source.json`
+  (SHA-256
+  `5947e363034be743f7958d2137ebd0f8348f5bac9acb67120aecd4ce9a23944d`)
+- Additional-call receipt: `2026-11-21-jev-haiku-missing-11-replay.json`
+  (SHA-256
+  `06f7b4b6f91697445fc3e7cbf2fec633939b22f967baf08417fcd1f04397f7f2`)
+- Full combined result: `2026-11-21-jev-haiku-stop-check-full.json`
+
+All four files are committed beside this report. The focused provenance test
+reconstructs the 14-sample population from them in a clean checkout.
 
 Task-level call accounting is 18 prior model responses plus the 11 explicitly
 authorized attempts, for 29 responses total. Only 14 exact-input samples belong

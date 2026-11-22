@@ -1,6 +1,8 @@
 import json
 import os
 import sys
+from hashlib import sha256
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -10,6 +12,12 @@ from scripts import replay_stop_check_comparison as replay
 from scripts import simulate_dialogue_week as simulate_module
 
 HISTORICAL_OBJECTIVE = "Choose the hero shot"
+RESULTS_DIR = Path(__file__).resolve().parents[1] / "docs" / "conversation-lab" / "results"
+
+
+def _result(name: str) -> tuple[Path, dict]:
+    path = RESULTS_DIR / name
+    return path, json.loads(path.read_text(encoding="utf-8"))
 
 
 def _source() -> dict:
@@ -498,3 +506,106 @@ def test_replay_validates_jev_fields_before_first_paid_call(monkeypatch, field, 
         _replay(source, max_samples=2, max_errors=2)
 
     assert calls == []
+
+
+def test_committed_full_replay_population_has_complete_source_provenance():
+    source_path, source = _result("2026-11-21-jev-haiku-source-14.json")
+    missing_path, missing = _result("2026-11-21-jev-haiku-missing-11-source.json")
+    _, prior = _result("2026-11-19-jev-haiku-stop-check-replay.json")
+    additional_path, additional = _result("2026-11-21-jev-haiku-missing-11-replay.json")
+    _, full = _result("2026-11-21-jev-haiku-stop-check-full.json")
+
+    source_hash = sha256(source_path.read_bytes()).hexdigest()
+    missing_hash = sha256(missing_path.read_bytes()).hexdigest()
+    additional_hash = sha256(additional_path.read_bytes()).hexdigest()
+    assert source_hash == (
+        "23752f3e95c943837b6a4780031663afeffc54c1bbddd23d7aa333ef4b5550c0"
+    )
+    assert missing_hash == (
+        "5947e363034be743f7958d2137ebd0f8348f5bac9acb67120aecd4ce9a23944d"
+    )
+
+    provenance = full["provenance"]
+    assert provenance["source_file"] == source_path.name
+    assert full["source_sha256"] == provenance["source_sha256"] == source_hash
+    assert provenance["missing_population_source_file"] == missing_path.name
+    assert additional["source_sha256"] == provenance[
+        "missing_population_source_sha256"
+    ] == missing_hash
+    assert provenance["missing_population_replay_file"] == additional_path.name
+    assert provenance["missing_population_replay_sha256"] == additional_hash
+
+    def identity(item):
+        return item["scenario_id"], item["run_index"]
+
+    source_by_identity = {identity(pair): pair for pair in source["pairs"]}
+    missing_by_identity = {identity(pair): pair for pair in missing["pairs"]}
+    prior_identities = {identity(sample) for sample in prior["samples"]}
+    additional_identities = {identity(sample) for sample in additional["samples"]}
+
+    assert len(source["pairs"]) == len(source_by_identity) == 14
+    assert len(missing["pairs"]) == len(missing_by_identity) == 11
+    assert len(prior["samples"]) == len(prior_identities) == 3
+    assert len(additional["samples"]) == len(additional_identities) == 11
+    assert prior_identities.isdisjoint(additional_identities)
+    assert prior_identities | additional_identities == set(source_by_identity)
+    assert additional_identities == set(missing_by_identity)
+    assert all(missing_by_identity[key] == source_by_identity[key] for key in missing_by_identity)
+
+    receipt_samples = prior["samples"] + additional["samples"]
+    assert [identity(sample) for sample in full["samples"]] == [
+        identity(sample) for sample in receipt_samples
+    ]
+    for committed, receipt in zip(full["samples"], receipt_samples, strict=True):
+        # The combined result adds only review annotations; every raw receipt
+        # field remains byte-for-byte-equivalent after JSON decoding.
+        assert set(committed) - set(receipt) == {"answer_present", "human_review"}
+        assert {key: committed[key] for key in receipt} == receipt
+
+        pair = source_by_identity[identity(committed)]
+        final_jev = pair["variant_stop_check_log"][-1]
+        scored_messages = pair["variant_messages"][: final_jev["tick"] + 1]
+        transcript = [
+            f"{message['character'].split()[0]}: {message['message']}"
+            for message in scored_messages
+        ]
+        jev_done = final_jev["decided"] >= full["thresholds"]["decided"] and (
+            not full["thresholds"]["require_pushback"]
+            or final_jev["pushback"] >= full["thresholds"]["pushback"]
+        )
+
+        assert committed["day"] == source["stage"] == final_jev["day"]
+        assert committed["objective"] == full["objective"]
+        assert committed["source_message_count"] == len(pair["variant_messages"])
+        assert committed["scored_tick"] == final_jev["tick"]
+        assert committed["scored_message_count"] == len(transcript)
+        assert committed["transcript"] == transcript
+        assert committed["transcript_sha256"] == sha256(
+            "\n".join(transcript).encode()
+        ).hexdigest()
+        assert committed["jev"] == {
+            "decided": final_jev["decided"],
+            "pushback": final_jev["pushback"],
+            "done": jev_done,
+            "model": final_jev["model"],
+        }
+
+
+def test_committed_full_replay_aggregates_derive_from_samples_and_raw_receipt():
+    _, additional = _result("2026-11-21-jev-haiku-missing-11-replay.json")
+    _, full = _result("2026-11-21-jev-haiku-stop-check-full.json")
+
+    comparable = [
+        sample for sample in full["samples"] if sample["agrees_on_done"] is not None
+    ]
+    agreement_count = sum(sample["agrees_on_done"] is True for sample in comparable)
+    disagreement_count = sum(sample["agrees_on_done"] is False for sample in comparable)
+    answer_present_count = sum(sample["answer_present"] is True for sample in full["samples"])
+    answer_absent_count = sum(sample["answer_present"] is False for sample in full["samples"])
+
+    assert len(comparable) == full["comparable_count"] == 14
+    assert agreement_count == full["agreement_count"] == 10
+    assert disagreement_count == full["disagreement_count"] == 4
+    assert answer_present_count == full["answer_present_count"] == 14
+    assert answer_absent_count == full["answer_absent_count"] == 0
+    assert additional["model_call_attempts"] == full["call_accounting"]["additional_attempts"] == 11
