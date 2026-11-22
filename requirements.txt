@@ -74,7 +74,7 @@ opentelemetry-api==1.45.2
     # via fastapi
 pillow==10.4.0
     # via muffinpanrecipes-creative-team
-pyasn1==0.6.2
+pyasn1==0.6.5
     # via
     #   python-jose
     #   rsa
