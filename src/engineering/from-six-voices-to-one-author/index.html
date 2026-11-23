@@ -17,7 +17,7 @@
 
     <title>From six voices to one author | Engineering Notes | Muffin Pan Recipes</title>
     <meta name="description"
-        content="How an AI editorial pipeline with six named roles became one author per conversation: the judges, the experiments, and the static site underneath.">
+        content="A workplace sitcom about AI characters at a muffin bakery began as one agent per character. How it became one author per scene, with each step tied to a named repository source.">
     <link rel="canonical" href="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
 
     <!-- Open Graph / Facebook -->
@@ -25,7 +25,7 @@
     <meta property="og:url" content="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
     <meta property="og:title" content="From six voices to one author | Muffin Pan Recipes">
     <meta property="og:description"
-        content="How an AI editorial pipeline with six named roles became one author per conversation, and what the measurements said.">
+        content="A workplace sitcom about AI characters at a muffin bakery began as one agent per character and moved to one author per scene.">
     <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
@@ -34,7 +34,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author">
     <meta name="twitter:title" content="From six voices to one author | Muffin Pan Recipes">
-    <meta name="twitter:description" content="How an AI editorial pipeline became one author per conversation.">
+    <meta name="twitter:description" content="An AI workplace sitcom, from one agent per character to one author per scene.">
     <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
 
     <!-- Structured data: BlogPosting with the human author credited. No
@@ -46,7 +46,7 @@
       "@id": "https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author#post",
       "url": "https://muffinpanrecipes.com/engineering/from-six-voices-to-one-author",
       "headline": "From six voices to one author",
-      "description": "How an AI editorial pipeline with six named roles became one author per conversation: the judges, the experiments, and the static site underneath.",
+      "description": "A workplace sitcom about AI characters at a muffin bakery began as one agent per character. How it became one author per scene, with each step tied to a named repository source.",
       "author": { "@type": "Person", "name": "Erik Sjaastad" },
       "publisher": { "@id": "https://muffinpanrecipes.com/#organization" },
       "isPartOf": { "@id": "https://muffinpanrecipes.com/engineering#page" },
@@ -72,49 +72,47 @@
         <div class="page-head">
             <p class="page-head__eyebrow">Engineering &middot; Draft</p>
             <h1 class="page-head__title">From six voices to one author</h1>
-            <p class="page-head__sub">An AI editorial pipeline built around six named roles, what the measurements said about it, and why each conversation is now written by a single author.</p>
+            <p class="page-head__sub">A workplace sitcom about AI characters at a muffin bakery, built first as one agent per character and now written by one author per scene.</p>
         </div>
 
-        <p class="about-copy">By Erik Sjaastad. Muffin Pan Recipes is a static site that publishes one recipe a week. Every recipe, photo, and piece of copy is AI-generated and not kitchen-tested unless a page says so. This post covers how the team came to be written the way it is, and what the measurements showed along the way.</p>
+        <p class="about-copy">By Erik Sjaastad. Muffin Pan Recipes is a workplace sitcom set in a small muffin bakery. The staff are AI characters, and each week's recipe is what their week produces. Every recipe, photo, and piece of copy is AI-generated and not kitchen-tested unless a page says so. Each section below ends with the repository files or commits it rests on; claims those sources do not support were left out.</p>
 
-        <h2>The hypothesis</h2>
-        <p class="about-copy">The product constraint came first: a muffin pan recipe, published as fast static HTML, with no filler. The editorial idea came second. Instead of one model writing a recipe and a page, a small team would produce it. Named roles would brainstorm the concept, develop the recipe, direct the photography, approve or reject the draft, write the copy, and publish. Two bets sat underneath. Disagreement and specialization might improve the output. And showing the process would make it more trustworthy than a finished page alone.</p>
+        <h2>The show came first</h2>
+        <p class="about-copy">The product document states the goal in one line: make the site entertaining, with the AI personalities as the real content, delivered through a recipe website. A January brainstorm in the first build described a "writers' room" above the team that would work "like sitcom writers," planning arcs and conflict over seasons of recipes. The Creative Bible later gave the show its setting: a small-town bakery just outside Los Angeles that makes muffin tin recipes, with a workplace drama underneath.</p>
+        <p class="about-copy source-note"><small>Sources: docs/PRD.md; commit 0a5d74a (Documents/character-creation-vision-v1.md, 2026-01-14 brainstorm); docs/CREATIVE_BIBLE.md, commit dd97a4d.</small></p>
 
-        <h2>The pipeline as first built</h2>
-        <p class="about-copy">Each week ran Monday through Sunday in stages. The baker developed the recipe. The creative director reviewed it and could send it back for revision, up to a fixed number of cycles. The art director chose images. The copywriter wrote the titles, descriptions, and voice. The site architect built the page. Each character was generated line by line, one turn at a time, with a shared prompt and a per-character block of backstory, voice notes, and example messages.</p>
+        <h2>January: one agent per character</h2>
+        <p class="about-copy">The first build, committed on 2026-01-22, was a multi-agent system with five characters: Margaret the traditionalist baker, Steph the anxious creative director, Julian the art director who takes 47 shots, Marcus the failed novelist turned copywriter, and Devon the lazy but competent site architect. Each was its own agent class. Each character record held a profession on the team, an age, a backstory, behavioral quirks, triggers, relationships with each of the others, and internal contradictions. A memory module recorded each agent's experiences, relationship events, and emotional responses between tasks, and the product document gave each agent a persistent memory file and suggested a different model for each role.</p>
+        <p class="about-copy source-note"><small>Sources: commit 0a5d74a (backend/agents/, backend/memory/agent_memory.py); backend/data/agent_personalities.json; docs/PRD.md.</small></p>
 
-        <h2>Where the roles broke</h2>
-        <p class="about-copy">The first problems were in wiring, not taste. Handoffs between roles drifted. In one week a copywriter's output was generated and never reached the published page. Per-character dialogue ran long. The voices blurred, so the baker and the copywriter often sounded alike. The characters also agreed with each other too readily, and the arguments that were supposed to improve the recipe often ended in circular agreement.</p>
+        <h2>February: the sitcom formula and the name-strip test</h2>
+        <p class="about-copy">On 2026-02-25 the Creative Bible set the format. Each recipe is a six-day story arc that publishes Sunday at 5:00 PM, told as the team's group chat, with no narrator and no bios. Its dialogue guidance drew on Friends, Seinfeld, and Cheers: verbal signatures, reactions, subtext, and comedy that comes from character rather than jokes. It also named the bar: strip the character names from a conversation, read only the messages, and ask whether you can still tell who is talking. To clear it, the Bible asked for the full character card in every dialogue generation call, plus the scene, the episode, and the conversation so far.</p>
+        <p class="about-copy source-note"><small>Sources: docs/CREATIVE_BIBLE.md, commits dd97a4d and 5eb63f6 (2026-02-25).</small></p>
 
-        <p class="about-copy">The lesson was that a role is a constraint on what a single writer produces, not a separate mind. Giving six prompts six names did not create six perspectives.</p>
+        <h2>What the measurements showed</h2>
+        <p class="about-copy">The voices did not clear that bar. A September read of 917 published lines over 24 weeks found every character writing in about the same register, a confident expert line of roughly two dozen words, with little variation inside any one voice. Thirty-six signature phrases produced one hit in all 917 lines. Measured from the prompt builder's own output, character material outweighed the shared rules in both prompts measured, Margaret's and Ria's, and the voices blurred anyway. The same read found the dialogue judge passing weeks I called robotic.</p>
+        <p class="about-copy">The judge was rebuilt to return eight structured scores, and a reply it cannot parse counts as a failure, never a default pass. Prompt changes moved to an offline method: one lever at a time, compared in blind, position-swapped pairs, with the scores recorded.</p>
+        <p class="about-copy source-note"><small>Sources: docs/conversation-lab/DIALS.md, sections 2(b) to 2(d); DECISIONS.md, entries dated 2026-09-05 (judge) and 2026-09-06 (conversation lab).</small></p>
 
-        <h2>Measuring it: judges, calibration, and experiments</h2>
-        <p class="about-copy">Once the output was visible, the team started measuring it. The production publish judge scores each draft on eight dimensions and returns a structured verdict. Its parser fails closed: a reply that cannot be parsed into the expected shape counts as a rejection, not a pass.</p>
-
-        <p class="about-copy">Two different judges appear in the record, and they should not be conflated. The production publish judge is the structured eight-dimension gate described above. The lab also uses a separate pairwise judge, which compares two drafts. The known-bad, deliberately degraded calibration exercised the lab's pairwise judge, not the production gate. On at least one degradation those results were mixed and suspect, so we do not treat them as a clean separation. Nothing in our calibration validated the production publish gate. We ran A/B comparisons in which the setup labels and positions were concealed from the evaluator. We tested turn counts, history windows (how much earlier conversation a character sees), and word caps. The protocol aimed to isolate one lever per experiment, but the record includes some bundled trials, where more than one thing changed at once. Each record states what changed, what was measured, and what we concluded.</p>
-
-        <p class="about-copy">Some of those changes helped. Many held no effect, and a few contradicted earlier results. The most useful lesson was about the judges themselves. A judge's output is evidence, not truth. A pass meant a draft met the judge's criteria, and those criteria were only as good as the evidence behind them. We stopped treating a green check as the finish line and started reading the drafts.</p>
-
-        <h2>The full-week comparison</h2>
-        <p class="about-copy">The biggest change came from comparing whole weeks rather than single turns. The old line-by-line generator passed one of six stages on the first try. In the tracked same-week comparison, a single author writing the whole meeting passed six of six stages on the first try. That is one week and a small sample, and we treat it as a result to confirm, not a law. It was still large enough to change what we ship.</p>
-
-        <p class="about-copy">Production now uses one author per conversation. That author writes the full scene in a single pass: who speaks, what each person knows, where they disagree, and how the discussion ends. The named roles stayed. They are now constraints on what the author writes about and perspectives the author has to hold, not separate generators stitched together after the fact.</p>
+        <h2>One author per scene</h2>
+        <p class="about-copy">Once the weekly dialogue was running, each line was a separate model call, its prompt carrying the speaking character's backstory, voice guide, relationships, and recent memories. In October, production moved from generating each day's conversation one line at a time to one author writing the full scene. The evidence was one same-week run through the production handlers: the per-line generator passed the judge on the first try on 1 of 6 days, with Monday failing all three tries, and the author passed 6 of 6. That is one week, scored by a model judge, and it is not universal proof. A separate blind human comparison of Monday meetings, 14 paired picks, split 7 for the author and 7 for the old path, so human preference was not settled by it. That commit kept the per-line path in the code behind a switch. The characters, their histories, and their relationships now constrain one writer instead of six prompts.</p>
+        <p class="about-copy source-note"><small>Sources: docs/conversation-lab/DIALS.md, section 2(c); commit bf44248 (2026-10-24); docs/conversation-lab/RESEARCH_PLAN.md, study S6.</small></p>
 
         <h2>Product rules belong in code</h2>
-        <p class="about-copy">Prompts cannot enforce product rules. A prompt can ask for a muffin-pan recipe, but it cannot guarantee one. So the publish path now runs deterministic checks: the recipe must genuinely use the pan, the title must satisfy format and novelty rules, and the ingredients are compared with the published catalog for same-dish overlap. A failed check blocks the stage.</p>
-
-        <p class="about-copy">One known duplicate showed the limits of this approach. Title similarity alone was not enough to catch it, which is why the gates also look at ingredient overlap rather than the title alone.</p>
+        <p class="about-copy">The muffin pan has been the product's constraint since January. A prompt can ask for a muffin-pan recipe but cannot guarantee one, so Monday runs a deterministic muffin-pan form gate. Same-dish duplicates are caught by a second Monday gate on ingredient overlap, because tightening the title gate was the wrong axis.</p>
+        <p class="about-copy source-note"><small>Sources: DECISIONS.md, entries dated 2026-01-03 (the muffin pan constraint) and 2026-09-05 (ingredient overlap).</small></p>
 
         <h2>The static site underneath</h2>
-        <p class="about-copy">The site is committed static HTML for recipe pages, with dynamic freshness only where it is needed. Three things went wrong on the way there.</p>
+        <p class="about-copy">Published recipe pages are committed static files, with the existing server handler as a fallback for pages published after the last deploy. Three things went wrong on the way there.</p>
 
         <ul>
-            <li>Our assumption about how the hosting platform routes built files was wrong, and pages returned 404 until the routing matched the build's real output layout.</li>
-            <li>A test run that wrote under a different storage prefix leaked that prefix into shared process state, so the live site briefly read from the test path. The fix is a context manager that restores the prefix on every exit path, including exceptions, and wraps each scheduled handler.</li>
-            <li>A full rebuild quietly changed the hero images on older pages, because the image choice was being re-derived at build time. Chosen images are now pinned as data, so a rebuild reproduces the same page.</li>
+            <li>A first attempt pointed reader routes at files a build step was supposed to generate; the hosting configuration skipped that step, so every route returned 404 and the change was reverted.</li>
+            <li>A test run that wrote under a test storage prefix left that prefix in shared process state, so the live site briefly read from the test path. The fix is a context manager that restores the prefix on every exit path, including exceptions, wrapped around each scheduled handler.</li>
+            <li>The first live full rebuild changed the hero image on 20 of 25 published pages, because the image choice was being re-derived at build time. Chosen heroes are now pinned as data, and after the backfill 0 of 25 differ on rebuild.</li>
         </ul>
 
-        <p class="about-copy">Each release now goes through explicit preview and release-provenance checks before it is promoted. The goal is that a rebuild can only change what was meant to change.</p>
+        <p class="about-copy">Production deploys now come only from the reviewed main branch, with preview and production verification bound to that one commit.</p>
+        <p class="about-copy source-note"><small>Sources: DECISIONS.md, entries dated 2026-09-05 (static pages, pinned heroes) and 2026-10-27 (deploys); RUNBOOK.md, Incident 1.</small></p>
 
         <h2>What is next</h2>
         <p class="about-copy">The next posts in this series will go deeper on the judges, on the product-rule gates, and on the static publishing setup. Each will report what was measured and what was not. For how the site is made and who is responsible for it, see <a href="/about">the about page</a>. For the rest of the series, see <a href="/engineering">the engineering notes</a>.</p>

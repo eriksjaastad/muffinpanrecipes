@@ -19,7 +19,7 @@
 
     <title>About | Muffin Pan Recipes</title>
     <meta name="description"
-        content="How Muffin Pan Recipes is made: AI-written characters, a Sunday publish, and the person who built and runs it.">
+        content="Muffin Pan Recipes is a workplace sitcom about AI characters at a small muffin bakery. How it started, what changed, and the person who built it.">
     <link rel="canonical" href="https://muffinpanrecipes.com/about">
 
     <!-- Open Graph / Facebook -->
@@ -27,7 +27,7 @@
     <meta property="og:url" content="https://muffinpanrecipes.com/about">
     <meta property="og:title" content="About | Muffin Pan Recipes">
     <meta property="og:description"
-        content="How Muffin Pan Recipes is made: AI-written characters, a Sunday publish, and the person who built and runs it.">
+        content="Muffin Pan Recipes is a workplace sitcom about AI characters at a small muffin bakery. How it started, what changed, and the person who built it.">
     <meta property="og:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
     <meta property="og:image:width" content="1024">
     <meta property="og:image:height" content="1024">
@@ -36,7 +36,7 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="https://muffinpanrecipes.com/about">
     <meta name="twitter:title" content="About | Muffin Pan Recipes">
-    <meta name="twitter:description" content="How Muffin Pan Recipes is made, and who built it.">
+    <meta name="twitter:description" content="A workplace sitcom about AI characters at a small muffin bakery, and who built it.">
     <meta name="twitter:image" content="https://muffinpanrecipes.com/assets/images/classic-blueberry-muffins.webp">
 
     <!-- Structured data: AboutPage + Organization, with an honest founder
@@ -85,19 +85,23 @@
         <div class="page-head">
             <p class="page-head__eyebrow">How This Works</p>
             <h1 class="page-head__title">About Muffin Pan Recipes</h1>
-            <p class="page-head__sub">Recipes written by AI characters, published by a pipeline, and built by one person who would rather you know how that works.</p>
+            <p class="page-head__sub">A workplace sitcom set in a small muffin bakery. The staff are AI characters, and each week's recipe is what their week produces.</p>
         </div>
 
-        <p class="about-copy">Muffin Pan Recipes is an editorial cooking site where every recipe is brainstormed, developed, photographed, and written by a small cast of AI characters. None of them are real people. A new recipe publishes every Sunday.</p>
+        <p class="about-copy">Muffin Pan Recipes started as a show, not a recipe blog: a workplace sitcom whose cast are AI characters running a small-town bakery that makes muffin-pan recipes. None of them are real people. The product document calls the personalities the real content. A new recipe publishes every Sunday.</p>
+        <p class="about-copy source-note"><small>Sources: docs/PRD.md; docs/CREATIVE_BIBLE.md, commit dd97a4d.</small></p>
 
-        <h2 class="about-heading">How it started</h2>
-        <p class="about-copy">The site began in January 2026 as a product experiment with one strict constraint: every recipe has to work in a muffin pan, and every page has to load fast with no filler. The first design gave each character a job in a Monday-to-Sunday pipeline, on the bet that disagreement and specialization would make the recipes better and the process easier to trust.</p>
+        <h2 class="about-heading">January 2026: one agent per character</h2>
+        <p class="about-copy">The first build gave each character its own agent, with a history, quirks, relationships, and a memory of past tasks. The plan proposed a different model per role and a writers' room above the team, working "like sitcom writers."</p>
+        <p class="about-copy source-note"><small>Sources: commit 0a5d74a (2026-01-22); backend/data/agent_personalities.json; docs/PRD.md.</small></p>
 
-        <h2 class="about-heading">What we learned</h2>
-        <p class="about-copy">Part of that bet held. The disagreements were visible, and sometimes they caught real problems. But the handoffs were brittle: once, a copywriter's draft was generated and never published. The characters talked too long, their voices blurred together, and they agreed with each other in circles. A judge approving a draft didn't make it good, and we stopped treating it that way. Rules that matter, like the muffin-pan requirement, are enforced in code rather than left to prompts.</p>
+        <h2 class="about-heading">February 2026: the sitcom formula</h2>
+        <p class="about-copy">The Creative Bible set the format: each recipe is a six-day story arc told in the team's group chat, with dialogue rules borrowed from Friends, Seinfeld, and Cheers. Its test: strip the names off a conversation and see whether you can still tell who is talking.</p>
+        <p class="about-copy source-note"><small>Sources: docs/CREATIVE_BIBLE.md, commits dd97a4d and 5eb63f6 (2026-02-25).</small></p>
 
         <h2 class="about-heading">What changed</h2>
-        <p class="about-copy">The biggest change was structural. In a full-week comparison, the old line-by-line generator passed one of six stages on the first try. In the tracked same-week comparison, a single author writing the whole meeting passed six of six. That is one week and a small sample, so treat it as a result to confirm. Each conversation is now written by one author, so the scene stays coherent. The named roles remain as constraints and perspectives.</p>
+        <p class="about-copy">That test was the hard part. A September read of 917 published lines found the characters in nearly the same register. By then each line was a separate model call carrying the speaker's backstory, voice guide, and relationships. In October, production switched to one author writing each day's full scene. On one week, the line-by-line generator passed the judge on the first try on 1 of 6 days; the author passed 6 of 6. That is one week and a model judge, not proof, and a separate blind human comparison of Monday meetings split 7 to 7. The characters still shape every scene; one writer now holds them all.</p>
+        <p class="about-copy source-note"><small>Sources: docs/conversation-lab/DIALS.md; commit bf44248; docs/conversation-lab/RESEARCH_PLAN.md.</small></p>
 
         <p class="about-copy">Here's who's "in the kitchen":</p>
 

@@ -83,12 +83,78 @@ def test_engineering_links_have_persistent_underline() -> None:
     assert 'class="site-main engineering-index"' in _read(INDEX)
 
 
-def test_engineering_post_separates_publish_judge_from_lab_judge() -> None:
-    """The post must not imply the production publish gate was calibrated."""
-    post = _read(POST)
-    assert "production publish judge" in post
-    assert "pairwise judge" in post
-    assert "Nothing in our calibration validated the production publish gate" in post
+REPO = SRC.parent
+SOURCE_FILES = [
+    "docs/PRD.md",
+    "docs/CREATIVE_BIBLE.md",
+    "backend/data/agent_personalities.json",
+    "docs/conversation-lab/DIALS.md",
+    "docs/conversation-lab/RESEARCH_PLAN.md",
+    "DECISIONS.md",
+    "RUNBOOK.md",
+]
+SOURCE_COMMITS = ["0a5d74a", "dd97a4d", "5eb63f6", "bf44248"]
+REQUIRED_SOURCES = SOURCE_FILES[:3] + SOURCE_COMMITS[:3]
+
+
+def _sections(path: Path) -> list[str]:
+    """Main-content chunks split at each history heading; [0] is the intro."""
+    page = _read(path)
+    main = page[page.index("<main") : page.index("</main>")]
+    heading = '<h2 class="about-heading">' if path == ABOUT else "<h2>"
+    return main.split(heading)
+
+
+def _source_notes(chunk: str) -> list[str]:
+    return re.findall(r'class="about-copy source-note"><small>(.*?)</small>', chunk)
+
+
+def test_history_pages_lead_with_the_sitcom_origin() -> None:
+    """The real origin (an AI workplace sitcom in a muffin bakery) comes before
+    any history section, and the invented 'product experiment' origin is gone."""
+    for path in (ABOUT, POST):
+        intro = _sections(path)[0]
+        assert "workplace sitcom" in intro and "bakery" in intro, path.name
+    for path in (ABOUT, INDEX, POST):
+        page = _read(path)
+        for invented in ("product experiment", "The hypothesis", "on the bet that", "six specialized roles", "six named roles"):
+            assert invented not in page, (path.name, invented)
+
+
+def test_history_sections_name_their_repository_sources() -> None:
+    """Every history section ends in a visible source note naming a real repo
+    file or commit, and the required origin sources are all cited."""
+    for path in SOURCE_FILES:
+        assert (REPO / path).is_file(), path
+    known = SOURCE_FILES + SOURCE_COMMITS
+    about = _sections(ABOUT)  # intro + January + February + What changed
+    post = _sections(POST)[1:-1]  # every post section except "What is next"
+    cited = ""
+    for chunk in about + post:
+        notes = _source_notes(chunk)
+        assert notes, chunk[:80]
+        assert all(any(src in note for src in known) for note in notes), notes
+        cited += " ".join(notes)
+    for src in REQUIRED_SOURCES:
+        assert src in cited, src
+
+
+def test_one_author_result_keeps_its_caveats() -> None:
+    """bf44248 is one same-week judge result, and the Monday human comparison
+    was a 7-7 split; neither page may present them as more than that."""
+    for path in (ABOUT, POST):
+        page = _read(path)
+        assert "1 of 6 days" in page and "6 of 6" in page, path.name
+        assert "not proof" in page or "not universal proof" in page, path.name
+        assert re.search(r"7 to 7|7 for the author and 7", page), path.name
+        assert "7 of 7" not in page and "six of six" not in page, path.name
+
+
+def test_per_line_path_is_described_as_separate_model_calls() -> None:
+    """Before one author, each speaking character's line was its own model
+    call (DIALS.md 2(c); the per-line path bf44248 switched off)."""
+    for path in (ABOUT, POST):
+        assert "separate model call" in _read(path), path.name
 
 
 def test_engineering_pages_not_in_sitemap_or_site_nav() -> None:
